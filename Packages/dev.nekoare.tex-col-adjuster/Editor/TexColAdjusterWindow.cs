@@ -956,7 +956,19 @@ namespace TexColAdjuster
             
             if (materials.Length == 1)
             {
-                selectedMaterial = materials[0];
+                var newMaterial = materials[0];
+                if (selectedMaterial != newMaterial)
+                {
+                    selectedMaterial = newMaterial;
+                    // Clear existing preview when material changes
+                    if (previewTexture != null)
+                    {
+                        UnityEngine.Object.DestroyImmediate(previewTexture);
+                        previewTexture = null;
+                    }
+                    // Check if both materials are now available for preview generation
+                    CheckForExperimentalAutoPreview();
+                }
                 EditorGUILayout.BeginHorizontal();
                 EditorGUILayout.LabelField($"{componentType}マテリアル:", GUILayout.Width(100));
                 EditorGUILayout.LabelField(selectedMaterial.name, EditorStyles.boldLabel);
@@ -994,13 +1006,33 @@ namespace TexColAdjuster
                 if (selectedIndex == -1 && materials.Length > 0)
                 {
                     selectedIndex = 0;
-                    selectedMaterial = materials[0];
+                    var newMaterial = materials[0];
+                    if (selectedMaterial != newMaterial)
+                    {
+                        selectedMaterial = newMaterial;
+                        // Clear existing preview when material changes
+                        if (previewTexture != null)
+                        {
+                            UnityEngine.Object.DestroyImmediate(previewTexture);
+                            previewTexture = null;
+                        }
+                        // Check if both materials are now available for preview generation
+                        CheckForExperimentalAutoPreview();
+                    }
                 }
                 
                 int newIndex = EditorGUILayout.Popup(selectedIndex, materialNames);
                 if (newIndex != selectedIndex && newIndex >= 0 && newIndex < materials.Length)
                 {
                     selectedMaterial = materials[newIndex];
+                    // Clear existing preview when material changes
+                    if (previewTexture != null)
+                    {
+                        UnityEngine.Object.DestroyImmediate(previewTexture);
+                        previewTexture = null;
+                    }
+                    // Check if both materials are now available for preview generation
+                    CheckForExperimentalAutoPreview();
                 }
                 
                 EditorGUILayout.EndHorizontal();
