@@ -37,13 +37,7 @@ namespace TexColAdjuster
                     needsReimport = true;
                 }
                 
-                // Ensure compatible format for GetPixels/SetPixels operations
-                if (importer.textureCompression != TextureImporterCompression.Uncompressed)
-                {
-                    importer.textureCompression = TextureImporterCompression.Uncompressed;
-                    needsReimport = true;
-                }
-                
+                // Only reimport if necessary to avoid changing compression settings
                 if (needsReimport)
                 {
                     AssetDatabase.ImportAsset(path);
