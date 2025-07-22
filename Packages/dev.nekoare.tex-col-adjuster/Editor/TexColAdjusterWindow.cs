@@ -79,6 +79,10 @@ namespace TexColAdjuster
         private Material selectedReferenceMaterial;
         private Material selectedTargetMaterial;
         
+        // Material transfer option for direct tab
+        private bool enableMaterialTransfer = false;
+        private int materialTransferDirection = 0; // 0: Reference → Target, 1: Target → Reference
+        
         [MenuItem("Tools/TexColAdjuster")]
         public static void ShowWindow()
         {
@@ -548,6 +552,91 @@ namespace TexColAdjuster
             
             GUILayout.Space(10);
             
+            // Material transfer option
+            if (selectedReferenceMaterial != null && selectedTargetMaterial != null)
+            {
+                EditorGUILayout.LabelField("マテリアル設定転送", EditorStyles.boldLabel);
+                enableMaterialTransfer = EditorGUILayout.Toggle("見え方も転送(マテリアル設定の転送)", enableMaterialTransfer);
+                
+                if (enableMaterialTransfer)
+                {
+                    EditorGUILayout.HelpBox("💡 色調整と同時にliltoonのマテリアル設定（描画効果等）も転送されます。", MessageType.Info);
+                    
+                    GUILayout.Space(5);
+                    
+                    // Transfer direction selection with visual indicators
+                    EditorGUILayout.LabelField("転送方向:", EditorStyles.boldLabel);
+                    
+                    EditorGUILayout.BeginVertical("box");
+                    
+                    // Direction 0: Reference → Target
+                    EditorGUILayout.BeginHorizontal();
+                    bool direction0Selected = materialTransferDirection == 0;
+                    if (direction0Selected) GUI.color = Color.green;
+                    
+                    bool newDirection0 = EditorGUILayout.Toggle(direction0Selected, GUILayout.Width(20));
+                    if (newDirection0 && !direction0Selected)
+                        materialTransferDirection = 0;
+                    
+                    GUI.color = Color.white;
+                    EditorGUILayout.LabelField($"参照用 ({(selectedReferenceMaterial != null ? selectedReferenceMaterial.name : "未選択")}) ", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField("→", EditorStyles.centeredGreyMiniLabel, GUILayout.Width(20));
+                    EditorGUILayout.LabelField($" 変更対象 ({(selectedTargetMaterial != null ? selectedTargetMaterial.name : "未選択")})", EditorStyles.miniLabel);
+                    EditorGUILayout.EndHorizontal();
+                    
+                    GUILayout.Space(2);
+                    
+                    // Direction 1: Target → Reference
+                    EditorGUILayout.BeginHorizontal();
+                    bool direction1Selected = materialTransferDirection == 1;
+                    if (direction1Selected) GUI.color = Color.green;
+                    
+                    bool newDirection1 = EditorGUILayout.Toggle(direction1Selected, GUILayout.Width(20));
+                    if (newDirection1 && !direction1Selected)
+                        materialTransferDirection = 1;
+                    
+                    GUI.color = Color.white;
+                    EditorGUILayout.LabelField($"変更対象 ({(selectedTargetMaterial != null ? selectedTargetMaterial.name : "未選択")}) ", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField("→", EditorStyles.centeredGreyMiniLabel, GUILayout.Width(20));
+                    EditorGUILayout.LabelField($" 参照用 ({(selectedReferenceMaterial != null ? selectedReferenceMaterial.name : "未選択")})", EditorStyles.miniLabel);
+                    EditorGUILayout.EndHorizontal();
+                    
+                    EditorGUILayout.EndVertical();
+                    
+                    GUILayout.Space(5);
+                    
+                    // Show material compatibility status for the selected direction
+                    Material sourceMaterial = materialTransferDirection == 0 ? selectedReferenceMaterial : selectedTargetMaterial;
+                    Material targetMaterial = materialTransferDirection == 0 ? selectedTargetMaterial : selectedReferenceMaterial;
+                    
+                    bool sourceLiltoon = IsLiltoonMaterial(sourceMaterial);
+                    bool targetLiltoon = IsLiltoonMaterial(targetMaterial);
+                    
+                    EditorGUILayout.BeginHorizontal();
+                    EditorGUILayout.LabelField("転送元:", GUILayout.Width(50));
+                    GUI.color = sourceLiltoon ? Color.green : Color.red;
+                    EditorGUILayout.LabelField(sourceMaterial != null ? sourceMaterial.name : "未選択", EditorStyles.boldLabel);
+                    GUI.color = Color.white;
+                    EditorGUILayout.LabelField(sourceLiltoon ? "✓ liltoon" : "⚠ 非liltoon", GUILayout.Width(80));
+                    EditorGUILayout.EndHorizontal();
+                    
+                    EditorGUILayout.BeginHorizontal();
+                    EditorGUILayout.LabelField("転送先:", GUILayout.Width(50));
+                    GUI.color = targetLiltoon ? Color.green : Color.red;
+                    EditorGUILayout.LabelField(targetMaterial != null ? targetMaterial.name : "未選択", EditorStyles.boldLabel);
+                    GUI.color = Color.white;
+                    EditorGUILayout.LabelField(targetLiltoon ? "✓ liltoon" : "⚠ 非liltoon", GUILayout.Width(80));
+                    EditorGUILayout.EndHorizontal();
+                    
+                    if (!sourceLiltoon || !targetLiltoon)
+                    {
+                        EditorGUILayout.HelpBox("⚠ 両方のマテリアルがliltoonである必要があります。", MessageType.Warning);
+                    }
+                }
+                
+                GUILayout.Space(10);
+            }
+            
             // Preview controls
             EditorGUILayout.LabelField(LocalizationManager.Get("preview"), EditorStyles.boldLabel);
             
@@ -904,12 +993,17 @@ namespace TexColAdjuster
             
             try
             {
-                // Check if materials are liltoon
-                if (!IsLiltoonMaterial(selectedReferenceMaterial) || !IsLiltoonMaterial(selectedTargetMaterial))
+                // Determine source and target materials for transfer based on selected direction
+                Material transferSourceMaterial = materialTransferDirection == 0 ? selectedReferenceMaterial : selectedTargetMaterial;
+                Material transferTargetMaterial = materialTransferDirection == 0 ? selectedTargetMaterial : selectedReferenceMaterial;
+                
+                // Check if materials are liltoon (only needed if material transfer is enabled)
+                if (enableMaterialTransfer && (!IsLiltoonMaterial(transferSourceMaterial) || !IsLiltoonMaterial(transferTargetMaterial)))
                 {
+                    string directionText = materialTransferDirection == 0 ? "参照用 → 変更対象" : "変更対象 → 参照用";
                     int dialogResult = EditorUtility.DisplayDialogComplex(
                         "警告", 
-                        "選択されたマテリアルがliltoonではありません。処理を続行しますか？",
+                        $"マテリアル設定転送が有効ですが、選択されたマテリアルがliltoonではありません。\n転送方向: {directionText}\n処理を続行しますか？",
                         "続行", "キャンセル", ""
                     );
                     // Handle dialog result: 0 = continue, 1 = cancel, -1 = closed with X button
@@ -926,8 +1020,16 @@ namespace TexColAdjuster
                     return;
                 }
                 
-                // Apply existing color adjustment process
+                // Apply color adjustment process
                 ApplyColorAdjustmentToMaterial(referenceTexture, targetTexture, selectedTargetMaterial);
+                
+                // Apply material transfer if enabled and both materials are liltoon
+                if (enableMaterialTransfer && IsLiltoonMaterial(transferSourceMaterial) && IsLiltoonMaterial(transferTargetMaterial))
+                {
+                    string directionText = materialTransferDirection == 0 ? "参照用 → 変更対象" : "変更対象 → 参照用";
+                    LiltoonPresetApplier.TransferDrawingEffects(transferSourceMaterial, transferTargetMaterial, 1.0f);
+                    EditorUtility.DisplayDialog("成功", $"色調整とマテリアル設定転送が完了しました。\n転送方向: {directionText}", "OK");
+                }
             }
             catch (Exception e)
             {
