@@ -5,6 +5,53 @@ using UnityEditor;
 
 namespace TexColAdjuster
 {
+    // Class to store original texture import settings for restoration
+    [Serializable]
+    public class TextureImportBackup
+    {
+        public string texturePath;
+        public bool isReadable;
+        public TextureImporterCompression compression;
+        public TextureImporterFormat format;
+        public TextureFormat textureFormat;
+        
+        public TextureImportBackup(string path, TextureImporter importer, Texture2D texture)
+        {
+            texturePath = path;
+            isReadable = importer.isReadable;
+            compression = importer.textureCompression;
+            format = importer.textureFormat;
+            textureFormat = texture.format;
+        }
+        
+        public void RestoreSettings()
+        {
+            var importer = AssetImporter.GetAtPath(texturePath) as TextureImporter;
+            if (importer != null)
+            {
+                bool needsReimport = false;
+                
+                if (importer.isReadable != isReadable)
+                {
+                    importer.isReadable = isReadable;
+                    needsReimport = true;
+                }
+                
+                if (importer.textureCompression != compression)
+                {
+                    importer.textureCompression = compression;
+                    needsReimport = true;
+                }
+                
+                if (needsReimport)
+                {
+                    Debug.Log($"Restoring original import settings for: {System.IO.Path.GetFileName(texturePath)}");
+                    AssetDatabase.ImportAsset(texturePath);
+                }
+            }
+        }
+    }
+
     public static class TextureProcessor
     {
         public static Texture2D LoadTexture(string path)
@@ -21,14 +68,41 @@ namespace TexColAdjuster
         
         public static Texture2D MakeTextureReadable(Texture2D texture)
         {
+            return MakeTextureReadable(texture, out _);
+        }
+        
+        public static Texture2D MakeTextureReadable(Texture2D texture, out TextureImportBackup backup)
+        {
+            backup = null;
+            
             if (texture == null)
                 return null;
                 
+            // First, try to read pixels directly to check if it's already readable
+            try
+            {
+                texture.GetPixels();
+                return texture; // Already readable
+            }
+            catch
+            {
+                // Need to make it readable
+            }
+                
             string path = AssetDatabase.GetAssetPath(texture);
+            if (string.IsNullOrEmpty(path))
+            {
+                Debug.LogError($"Cannot make texture readable: '{texture.name}' - No asset path found. This might be a runtime-created texture.");
+                return null;
+            }
+            
             var importer = AssetImporter.GetAtPath(path) as TextureImporter;
             
             if (importer != null)
             {
+                // Create backup before making changes
+                backup = new TextureImportBackup(path, importer, texture);
+                
                 bool needsReimport = false;
                 
                 if (!importer.isReadable)
@@ -37,11 +111,44 @@ namespace TexColAdjuster
                     needsReimport = true;
                 }
                 
-                // Only reimport if necessary to avoid changing compression settings
+                // For heavily compressed formats (like DXT), temporarily use uncompressed for reading
+                if (texture.format == TextureFormat.DXT1 || 
+                    texture.format == TextureFormat.DXT1Crunched ||
+                    texture.format == TextureFormat.DXT5 || 
+                    texture.format == TextureFormat.DXT5Crunched ||
+                    !texture.isReadable)
+                {
+                    importer.textureCompression = TextureImporterCompression.Uncompressed;
+                    needsReimport = true;
+                }
+                
                 if (needsReimport)
                 {
+                    Debug.Log($"Making texture readable: {texture.name} (original format: {texture.format})");
                     AssetDatabase.ImportAsset(path);
+                    
+                    // Refresh the texture reference after reimport
+                    texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                    
+                    // Verify the texture is now readable
+                    try
+                    {
+                        texture.GetPixels();
+                        Debug.Log($"Successfully made texture readable: {texture.name}");
+                    }
+                    catch (UnityException e)
+                    {
+                        Debug.LogError($"Failed to make texture readable after reimport: {texture.name}, Error: {e.Message}");
+                        // Restore original settings
+                        backup.RestoreSettings();
+                        return null;
+                    }
                 }
+            }
+            else
+            {
+                Debug.LogWarning($"Could not find TextureImporter for texture: {texture.name} at path: {path}");
+                return null;
             }
             
             return texture;
@@ -111,16 +218,26 @@ namespace TexColAdjuster
         public static bool ValidateTexture(Texture2D texture)
         {
             if (texture == null)
+            {
+                Debug.LogError("Texture validation failed: Texture is null");
                 return false;
+            }
                 
             // Check if texture is readable
             try
             {
                 var pixels = texture.GetPixels();
-                return pixels != null && pixels.Length > 0;
+                if (pixels == null || pixels.Length == 0)
+                {
+                    Debug.LogError($"Texture validation failed: '{texture.name}' returned null or empty pixel array");
+                    return false;
+                }
+                Debug.Log($"Texture validation successful: '{texture.name}' (format: {texture.format}, size: {texture.width}x{texture.height}, pixels: {pixels.Length})");
+                return true;
             }
-            catch
+            catch (UnityException e)
             {
+                Debug.LogError($"Texture validation failed: '{texture.name}' (format: {texture.format}) - {e.Message}");
                 return false;
             }
         }
@@ -240,15 +357,25 @@ namespace TexColAdjuster
         public static Color[] GetPixelsSafe(Texture2D texture)
         {
             if (texture == null)
+            {
+                Debug.LogError("GetPixelsSafe failed: Texture is null");
                 return null;
+            }
                 
             try
             {
-                return texture.GetPixels();
+                var pixels = texture.GetPixels();
+                if (pixels == null || pixels.Length == 0)
+                {
+                    Debug.LogError($"GetPixelsSafe failed: '{texture.name}' returned null or empty pixel array (format: {texture.format}, readable: {texture.isReadable})");
+                    return null;
+                }
+                return pixels;
             }
             catch (UnityException e)
             {
-                Debug.LogError($"Failed to get pixels from texture: {e.Message}");
+                Debug.LogError($"GetPixelsSafe failed: '{texture.name}' (format: {texture.format}, readable: {texture.isReadable}) - {e.Message}");
+                Debug.LogError($"Please ensure the texture '{texture.name}' is set to 'Read/Write Enabled' in its import settings, or try reimporting the texture.");
                 return null;
             }
         }
