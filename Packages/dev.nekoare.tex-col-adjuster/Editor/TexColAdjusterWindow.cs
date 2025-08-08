@@ -736,19 +736,38 @@ namespace TexColAdjuster
             try
             {
                 // Ensure both textures are readable before processing
-                var readableTarget = TextureProcessor.MakeTextureReadable(targetTexture);
-                var readableReference = TextureProcessor.MakeTextureReadable(referenceTexture);
+                TextureImportBackup targetBackup, referenceBackup;
+                var readableTarget = TextureProcessor.MakeTextureReadable(targetTexture, out targetBackup);
+                var readableReference = TextureProcessor.MakeTextureReadable(referenceTexture, out referenceBackup);
                 
                 // Validate textures and log format information
-                Debug.Log($"Target texture: {targetTexture.name}, Format: {readableTarget.format}, Size: {readableTarget.width}x{readableTarget.height}");
-                Debug.Log($"Reference texture: {referenceTexture.name}, Format: {readableReference.format}, Size: {readableReference.width}x{readableReference.height}");
+                Debug.Log($"Target texture: {targetTexture.name}, Format: {(readableTarget != null ? readableTarget.format.ToString() : "NULL")}, Size: {(readableTarget != null ? $"{readableTarget.width}x{readableTarget.height}" : "NULL")}");
+                Debug.Log($"Reference texture: {referenceTexture.name}, Format: {(readableReference != null ? readableReference.format.ToString() : "NULL")}, Size: {(readableReference != null ? $"{readableReference.width}x{readableReference.height}" : "NULL")}");
+                
+                // Check if MakeTextureReadable failed
+                if (readableTarget == null)
+                {
+                    throw new Exception($"Could not make target texture '{targetTexture.name}' readable. The texture may be corrupted or in an unsupported format.");
+                }
+                if (readableReference == null)
+                {
+                    // Restore target texture settings if reference failed
+                    targetBackup?.RestoreSettings();
+                    throw new Exception($"Could not make reference texture '{referenceTexture.name}' readable. The texture may be corrupted or in an unsupported format.");
+                }
                 
                 if (!TextureProcessor.ValidateTexture(readableTarget))
                 {
+                    // Restore settings on failure
+                    targetBackup?.RestoreSettings();
+                    referenceBackup?.RestoreSettings();
                     throw new Exception($"Target texture '{targetTexture.name}' (format: {readableTarget.format}) is not readable or corrupted");
                 }
                 if (!TextureProcessor.ValidateTexture(readableReference))
                 {
+                    // Restore settings on failure
+                    targetBackup?.RestoreSettings();
+                    referenceBackup?.RestoreSettings();
                     throw new Exception($"Reference texture '{referenceTexture.name}' (format: {readableReference.format}) is not readable or corrupted");
                 }
                 
@@ -812,6 +831,10 @@ namespace TexColAdjuster
                     UnityEngine.Object.DestroyImmediate(previewTarget);
                 if (previewReference != readableReference)
                     UnityEngine.Object.DestroyImmediate(previewReference);
+                
+                // Restore original texture import settings after processing
+                targetBackup?.RestoreSettings();
+                referenceBackup?.RestoreSettings();
                 
                 processingProgress = 1f;
                 showPreview = true;
