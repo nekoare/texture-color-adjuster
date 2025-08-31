@@ -67,10 +67,10 @@
           "url": "https://nekoare.github.io/texture-color-adjuster/dev.nekoare.tex-col-adjuster-v1.0.3.zip",
           "zipSHA256": "9a0bdecc75241a7756a7b1eb3baa781909119ac97ddd4db71fe1379d0016b97d"
         },
-        "1.2": {
+        "1.2.0": {
           "name": "dev.nekoare.tex-col-adjuster",
           "displayName": "Texture Color Adjuster",
-          "version": "1.2",
+          "version": "1.2.0",
           "description": "Unity Editor extension for advanced texture color adjustment with support for various color spaces and intelligent color manipulation algorithms.",
           "unity": "2022.3",
           "unityRelease": "0f1",
