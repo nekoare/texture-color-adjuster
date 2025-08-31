@@ -1,20 +1,10 @@
 {
   "name": "dev.nekoare.tex-col-adjuster",
   "displayName": "Texture Color Adjuster",
-  "version": "1.0.2",
-  "description": "Unity Editor extension for advanced texture color adjustment with support for various color spaces and intelligent color manipulation algorithms.",
+  "version": "1.2",
   "unity": "2022.3",
   "unityRelease": "0f1",
-  "author": {
-    "name": "nekoare",
-    "url": "https://github.com/nekoare"
-  },
-  "changelogUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/CHANGELOG.md",
-  "documentationUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/README.md",
-  "licenseUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/LICENSE",
-  "vpmDependencies": {
-    "com.vrchat.avatars": ">=3.7.0"
-  },
+  "description": "Unity Editor extension for advanced texture color adjustment with support for various color spaces and intelligent color manipulation algorithms.",
   "keywords": [
     "texture",
     "color",
@@ -25,6 +15,24 @@
     "color matching",
     "lab color space"
   ],
-  "legacyFolders": {},
-  "legacyFiles": {}
+  "author": {
+    "name": "nekoare",
+    "url": "https://github.com/nekoare"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nekoare/texture-color-adjuster.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nekoare/texture-color-adjuster/issues"
+  },
+  "homepage": "https://github.com/nekoare/texture-color-adjuster#readme",
+  "dependencies": {},
+  "vpmDependencies": {
+    "com.vrchat.avatars": "3.5.0"
+  },
+  "changelogUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/CHANGELOG.md",
+  "documentationUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/README.md",
+  "licensesUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/LICENSE"
 }
