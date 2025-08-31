@@ -36,6 +36,11 @@ jobs:
             VERSION="1.2"
             echo "Using fallback version: $VERSION"
           fi
+          # 2セグメント(例: 1.2)は 1.2.0 に正規化
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            VERSION="${VERSION}.0"
+            echo "Normalized to SemVer: $VERSION"
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
         
       - name: Create package ZIP file
@@ -49,51 +54,65 @@ jobs:
           
       - name: Calculate ZIP hash and update index.json
         run: |
-          ZIP_HASH=$(sha256sum dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip | cut -d' ' -f1)
+          ZIP_NAME="dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip"
+          ZIP_HASH=$(sha256sum "$ZIP_NAME" | cut -d' ' -f1)
           echo "Generated ZIP hash for v${{ steps.version.outputs.version }}: $ZIP_HASH"
           
-          # Create new version entry JSON
-          cat > new_version.json << EOF
-          {
-            "name": "dev.nekoare.tex-col-adjuster",
-            "displayName": "Texture Color Adjuster",
-            "version": "${{ steps.version.outputs.version }}",
-            "description": "Unity Editor extension for advanced texture color adjustment with support for various color spaces and intelligent color manipulation algorithms.",
-            "unity": "2022.3",
-            "unityRelease": "0f1",
-            "author": {
-              "name": "nekoare",
-              "url": "https://github.com/nekoare"
-            },
-            "changelogUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/CHANGELOG.md",
-            "documentationUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/README.md",
-            "licenseUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/LICENSE",
-            "vpmDependencies": {
-              "com.vrchat.avatars": ">=3.7.0"
-            },
-            "keywords": [
-              "texture",
-              "color",
-              "adjustment",
-              "unity",
-              "editor",
-              "image processing",
-              "color matching",
-              "lab color space"
-            ],
-            "url": "https://nekoare.github.io/texture-color-adjuster/dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip",
-            "zipSHA256": "$ZIP_HASH"
-          }
-          EOF
+          # Validate that index.json exists and is valid
+          if ! jq empty index.json; then
+            echo "ERROR: index.json is not valid JSON"
+            exit 1
+          fi
+
+          # 旧キー "1.2" を削除（存在すれば）
+          tmpfile=$(mktemp)
+          jq 'del(.packages["dev.nekoare.tex-col-adjuster"].versions["1.2"])' index.json > "$tmpfile" && mv "$tmpfile" index.json
           
-          # Update index.json with the new version
-          jq --slurpfile newver new_version.json \
-             '.packages["dev.nekoare.tex-col-adjuster"].versions["${{ steps.version.outputs.version }}"] = $newver[0]' \
-             index.json > updated_index.json
+          # Use jq to directly create and insert the new version entry
+          jq \
+            --arg version "${{ steps.version.outputs.version }}" \
+            --arg hash "$ZIP_HASH" \
+            --arg url "https://nekoare.github.io/texture-color-adjuster/$ZIP_NAME" \
+            '.packages["dev.nekoare.tex-col-adjuster"].versions[$version] = {
+              "name": "dev.nekoare.tex-col-adjuster",
+              "displayName": "Texture Color Adjuster",
+              "version": $version,
+              "description": "Unity Editor extension for advanced texture color adjustment with support for various color spaces and intelligent color manipulation algorithms.",
+              "unity": "2022.3",
+              "unityRelease": "0f1",
+              "author": {
+                "name": "nekoare",
+                "url": "https://github.com/nekoare"
+              },
+              "changelogUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/CHANGELOG.md",
+              "documentationUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/README.md",
+              "licenseUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/LICENSE",
+              "vpmDependencies": {
+                "com.vrchat.avatars": ">=3.7.0"
+              },
+              "keywords": [
+                "texture",
+                "color",
+                "adjustment",
+                "unity",
+                "editor",
+                "image processing",
+                "color matching",
+                "lab color space"
+              ],
+              "url": $url,
+              "zipSHA256": $hash
+            }' index.json > updated_index.json
           
-          mv updated_index.json index.json
-          rm new_version.json
-          echo "Updated index.json with new version ${{ steps.version.outputs.version }}"
+          # Validate the updated JSON before replacing
+          if jq empty updated_index.json; then
+            mv updated_index.json index.json
+            echo "Successfully updated index.json with new version ${{ steps.version.outputs.version }}"
+          else
+            echo "ERROR: Generated JSON is invalid"
+            cat updated_index.json
+            exit 1
+          fi
           
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v4
