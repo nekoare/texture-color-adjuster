@@ -58,10 +58,6 @@
             "texture",
             "color",
             "adjustment",
-            "unity",
-            "editor",
-            "image processing",
-            "color matching",
             "lab color space"
           ],
           "url": "https://nekoare.github.io/texture-color-adjuster/dev.nekoare.tex-col-adjuster-v1.0.3.zip",
@@ -81,9 +77,7 @@
           "changelogUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/CHANGELOG.md",
           "documentationUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/README.md",
           "licenseUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/LICENSE",
-          "vpmDependencies": {
-            "com.vrchat.avatars": ">=3.7.0"
-          },
+          "vpmDependencies": { },
           "keywords": [
             "texture",
             "color",
