@@ -45,8 +45,28 @@ jobs:
         
       - name: Create package ZIP file
         run: |
-          echo "Creating ZIP from Packages/dev.nekoare.tex-col-adjuster directory"
-          cd Packages/dev.nekoare.tex-col-adjuster
+          echo "Preparing package.json for release (normalize SemVer, strip vpmDependencies)"
+          PKG_DIR="Packages/dev.nekoare.tex-col-adjuster"
+          PKG_JSON="$PKG_DIR/package.json"
+          if [ -f "$PKG_JSON" ]; then
+            tmp=$(mktemp)
+            jq '
+              # normalize 2-segment version (e.g., 1.2 -> 1.2.0)
+              .version |= (if test("^[0-9]+\\.[0-9]+$") then . + ".0" else . end) |
+              # ensure author fields exist
+              (.author //= {}) |
+              (.author.name //= "nekoare") |
+              (.author.url //= "https://github.com/nekoare") |
+              # remove runtime dependencies to avoid unresolved packages in general Unity projects
+              (.vpmDependencies = {})
+            ' "$PKG_JSON" > "$tmp" && mv "$tmp" "$PKG_JSON"
+            echo "package.json normalized for release"
+          else
+            echo "WARN: $PKG_JSON not found; skipping normalization"
+          fi
+
+          echo "Creating ZIP from $PKG_DIR"
+          cd "$PKG_DIR"
           zip -r ../../dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip . \
             -x "*.Zone.Identifier"
           cd ../..
@@ -87,9 +107,7 @@ jobs:
               "changelogUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/CHANGELOG.md",
               "documentationUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/README.md",
               "licenseUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/LICENSE",
-              "vpmDependencies": {
-                "com.vrchat.avatars": ">=3.7.0"
-              },
+              "vpmDependencies": {},
               "keywords": [
                 "texture",
                 "color",
