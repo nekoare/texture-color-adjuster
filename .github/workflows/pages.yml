@@ -26,32 +26,76 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Get package version
+      - name: Get package version from Packages directory
         id: version
-        run: echo "version=$(jq -r '.version' package.json)" >> $GITHUB_OUTPUT
+        run: |
+          if [ -f "Packages/dev.nekoare.tex-col-adjuster/package.json" ]; then
+            VERSION=$(jq -r '.version' Packages/dev.nekoare.tex-col-adjuster/package.json)
+            echo "Found version in Packages: $VERSION"
+          else
+            VERSION="1.2"
+            echo "Using fallback version: $VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
         
       - name: Create package ZIP file
         run: |
-          zip -r dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip . \
-            -x "*.git*" "docs/*" "dev.nekoare.tex-col-adjuster-v*.zip" "*.Zone.Identifier" ".github/*"
+          echo "Creating ZIP from Packages/dev.nekoare.tex-col-adjuster directory"
+          cd Packages/dev.nekoare.tex-col-adjuster
+          zip -r ../../dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip . \
+            -x "*.Zone.Identifier"
+          cd ../..
+          echo "Created ZIP file: dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip"
           
       - name: Calculate ZIP hash and update index.json
         run: |
           ZIP_HASH=$(sha256sum dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip | cut -d' ' -f1)
           echo "Generated ZIP hash for v${{ steps.version.outputs.version }}: $ZIP_HASH"
-          sed -i "s/PLACEHOLDER_HASH_TO_BE_UPDATED/$ZIP_HASH/g" docs/index.json
-          echo "Updated docs/index.json with hash"
           
-      - name: Move ZIP to docs directory
-        run: mv dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip docs/
-        
+          # Create a temporary updated index.json with the new version entry
+          jq --arg version "${{ steps.version.outputs.version }}" \
+             --arg hash "$ZIP_HASH" \
+             '.packages["dev.nekoare.tex-col-adjuster"].versions[$version] = {
+               "name": "dev.nekoare.tex-col-adjuster",
+               "displayName": "Texture Color Adjuster", 
+               "version": $version,
+               "description": "Unity Editor extension for advanced texture color adjustment with support for various color spaces and intelligent color manipulation algorithms.",
+               "unity": "2022.3",
+               "unityRelease": "0f1",
+               "author": {
+                 "name": "nekoare",
+                 "url": "https://github.com/nekoare"
+               },
+               "changelogUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/CHANGELOG.md",
+               "documentationUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/README.md", 
+               "licenseUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/LICENSE",
+               "vpmDependencies": {
+                 "com.vrchat.avatars": ">=3.7.0"
+               },
+               "keywords": [
+                 "texture",
+                 "color", 
+                 "adjustment",
+                 "unity",
+                 "editor",
+                 "image processing",
+                 "color matching",
+                 "lab color space"
+               ],
+               "url": ("https://nekoare.github.io/texture-color-adjuster/dev.nekoare.tex-col-adjuster-v" + $version + ".zip"),
+               "zipSHA256": $hash
+             }' index.json > updated_index.json
+          
+          mv updated_index.json index.json
+          echo "Updated index.json with new version ${{ steps.version.outputs.version }}"
+          
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v4
         
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'docs'
+          path: '.'
           
       - name: Deploy to GitHub Pages
         id: deployment
