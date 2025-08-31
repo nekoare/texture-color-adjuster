@@ -29,12 +29,12 @@ jobs:
       - name: Create package ZIP file
         run: |
           cd Packages/dev.nekoare.tex-col-adjuster
-          zip -r ../../dev.nekoare.tex-col-adjuster-v1.0.2.zip .
+          zip -r ../../dev.nekoare.tex-col-adjuster-v1.2.zip .
           cd ../..
           
       - name: Calculate ZIP hash and update index.json
         run: |
-          ZIP_HASH=$(sha256sum dev.nekoare.tex-col-adjuster-v1.0.2.zip | cut -d' ' -f1)
+          ZIP_HASH=$(sha256sum dev.nekoare.tex-col-adjuster-v1.2.zip | cut -d' ' -f1)
           echo "Generated ZIP hash: $ZIP_HASH"
           sed -i "s/PLACEHOLDER_HASH_WILL_BE_REPLACED/$ZIP_HASH/g" index.json
           echo "Updated index.json with hash"
