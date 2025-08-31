@@ -1,6 +1,7 @@
 {
-  "name": "Texture Color Adjuster Repository",
+  "name": "nekoare VCC Repository",
   "id": "dev.nekoare.tex-col-adjuster-repo",
+  "description": "nekoare's Unity packages for VCC",
   "url": "https://nekoare.github.io/texture-color-adjuster/index.json",
   "author": "nekoare",
   "packages": {
@@ -29,10 +30,43 @@
             "adjustment",
             "unity",
             "editor",
-            "image processing"
+            "image processing",
+            "color matching",
+            "lab color space"
           ],
           "url": "https://nekoare.github.io/texture-color-adjuster/dev.nekoare.tex-col-adjuster-v1.0.2.zip",
-          "zipSHA256": "PLACEHOLDER_HASH_WILL_BE_REPLACED"
+          "zipSHA256": "be4fe53cd06331bd1f63e8338fbc0e000396d336f515b8689760fd8878b88f50"
+        },
+        "1.0.3": {
+          "name": "dev.nekoare.tex-col-adjuster",
+          "displayName": "Texture Color Adjuster",
+          "version": "1.0.3",
+          "description": "Unity Editor extension for advanced texture color adjustment with support for various color spaces and intelligent color manipulation algorithms. Fixed MaterialUnifyTool conflicts.",
+          "unity": "2022.3",
+          "unityRelease": "0f1",
+          "author": {
+            "name": "nekoare",
+            "url": "https://github.com/nekoare"
+          },
+          "changelogUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/CHANGELOG.md",
+          "documentationUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/README.md",
+          "licenseUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/LICENSE",
+          "vpmDependencies": {
+            "com.vrchat.avatars": ">=3.7.0"
+          },
+          "keywords": [
+            "texture",
+            "color",
+            "adjustment",
+            "unity",
+            "editor",
+            "image processing",
+            "color matching",
+            "lab color space"
+          ],
+          "url": "https://nekoare.github.io/texture-color-adjuster/dev.nekoare.tex-col-adjuster-v1.0.3.zip",
+          "zipSHA256": "9a0bdecc75241a7756a7b1eb3baa781909119ac97ddd4db71fe1379d0016b97d"
+        }
         }
       }
     }
