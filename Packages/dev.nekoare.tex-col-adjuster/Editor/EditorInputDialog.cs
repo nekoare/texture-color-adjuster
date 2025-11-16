@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEditor;
 
-namespace TexColAdjuster
+namespace TexColAdjuster.Editor
 {
     public class EditorInputDialog : EditorWindow
     {

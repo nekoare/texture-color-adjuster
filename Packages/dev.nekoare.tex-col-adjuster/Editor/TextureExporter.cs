@@ -4,8 +4,9 @@ using System.IO;
 using System.Linq;
 using UnityEngine;
 using UnityEditor;
+using TexColAdjuster.Runtime;
 
-namespace TexColAdjuster
+namespace TexColAdjuster.Editor
 {
     public static class TextureExporter
     {

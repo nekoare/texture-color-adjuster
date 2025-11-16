@@ -85,12 +85,13 @@ namespace TexColAdjuster
             // Process pixels with optimized loop
             Color[] resultColors = ProcessPixelsOptimized(sourceColors, transformCache, selectionMask);
             
-            var resultTexture = new Texture2D(sourceTexture.width, sourceTexture.height, TextureFormat.RGBA32, false);
+            var resultTexture = TextureColorSpaceUtility.CreateRuntimeTextureLike(sourceTexture);
             if (TextureUtils.SetPixelsSafe(resultTexture, resultColors))
             {
                 return resultTexture;
             }
             
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(resultTexture);
             UnityEngine.Object.DestroyImmediate(resultTexture);
             return null;
         }
@@ -232,12 +233,13 @@ namespace TexColAdjuster
                 }
             }
             
-            var resizedTexture = new Texture2D(newWidth, newHeight, TextureFormat.RGBA32, false);
+            var resizedTexture = TextureColorSpaceUtility.CreateRuntimeTexture(newWidth, newHeight, TextureFormat.RGBA32, false, TextureColorSpaceUtility.IsTextureSRGB(source));
             if (TextureUtils.SetPixelsSafe(resizedTexture, resizedPixels))
             {
                 return resizedTexture;
             }
             
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(resizedTexture);
             UnityEngine.Object.DestroyImmediate(resizedTexture);
             return null;
         }
@@ -355,12 +357,13 @@ namespace TexColAdjuster
                 pixels[i] = pixel.ToColor();
             }
             
-            var result = new Texture2D(baseTexture.width, baseTexture.height, TextureFormat.RGBA32, false);
+            var result = TextureColorSpaceUtility.CreateRuntimeTextureLike(baseTexture);
             if (TextureUtils.SetPixelsSafe(result, pixels))
             {
                 return result;
             }
             
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(result);
             UnityEngine.Object.DestroyImmediate(result);
             return null;
         }

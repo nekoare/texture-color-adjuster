@@ -3,6 +3,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEditor;
+using TexColAdjuster;
 
 namespace TexColAdjuster
 {
@@ -37,7 +38,7 @@ namespace TexColAdjuster
 
         private static Texture2D GenerateUVMapCPU(int[] triangles, Vector2[] uvs, int width, int height)
         {
-            var uvMapTexture = new Texture2D(width, height, TextureFormat.RGB24, false);
+            var uvMapTexture = TextureColorSpaceUtility.CreateRuntimeTexture(width, height, TextureFormat.RGB24, false, true);
             var pixels = new Color[width * height];
 
             // Clear to black

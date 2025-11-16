@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using TexColAdjuster;
 
 namespace TexColAdjuster
 {
@@ -34,12 +35,13 @@ namespace TexColAdjuster
             // Convert back and create result texture
             Color[] resultColors = ConvertToColors(processedPixels);
             
-            var resultTexture = new Texture2D(sourceTexture.width, sourceTexture.height, TextureFormat.RGBA32, false);
+            var resultTexture = TextureColorSpaceUtility.CreateRuntimeTextureLike(sourceTexture);
             if (TextureUtils.SetPixelsSafe(resultTexture, resultColors))
             {
                 return resultTexture;
             }
             
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(resultTexture);
             UnityEngine.Object.DestroyImmediate(resultTexture);
             return null;
         }
@@ -350,12 +352,13 @@ namespace TexColAdjuster
                 }
             }
             
-            var previewTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            var previewTexture = TextureColorSpaceUtility.CreateRuntimeTexture(width, height, TextureFormat.RGBA32, false, true);
             if (TextureUtils.SetPixelsSafe(previewTexture, previewPixels))
             {
                 return previewTexture;
             }
             
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(previewTexture);
             UnityEngine.Object.DestroyImmediate(previewTexture);
             return null;
         }

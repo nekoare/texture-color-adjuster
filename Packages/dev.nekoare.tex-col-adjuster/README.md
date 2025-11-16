@@ -1,32 +1,241 @@
-# Texture Color Adjuster
+# TexColAdjuster - VRChatアバター用テクスチャ色合わせツール
 
-Unity Editor extension for advanced texture color adjustment with support for various color spaces and intelligent color manipulation algorithms.
+Unity Editor拡張として動作する、VRChatアバター制作用の高度なテクスチャ色調整ツールです。
 
-## Features
+## 概要
 
-- Advanced LAB color space support
-- RGB, HSV, LAB color space conversions
-- Real-time preview functionality
-- Batch processing capabilities
-- Memory optimized processing
-- Undo/Redo support
+TexColAdjusterは、異なるテクスチャ間の色調を統一し、VRChatアバターの見た目を向上させることを目的としたツールです。単純な色の乗算や色相変更ではなく、**質感を保持したまま色調整**を行うことができます。
 
-## Installation
+## 主な機能
 
-This package is designed to be installed via VCC (VRChat Creator Companion) or Unity Package Manager.
+### 🎨 高度な色調整機能
+- **LAB色空間ヒストグラムマッチング**: 基準テクスチャの色分布を参考に、質感を保持しながら色調整
+- **輝度保持調整**: 元の明暗情報を維持しながら色相・彩度のみを調整
+- **適応的色調整**: 複数のアルゴリズムを組み合わせた自然な色調整
+- **調整強度制御**: 0-100%の範囲で調整の強さを制御
 
-## Usage
+### 🖼️ 直感的なユーザーインターフェース
+- **日本語/英語対応**: 言語切り替えボタンでUIを日本語・英語に切り替え可能
+- **タブ式UI**: Basic、Advanced、Batch、Settingsの4つのタブで整理
+- **リアルタイムプレビュー**: パラメータ変更時の即座のプレビュー表示
+- **Before/After比較**: 調整前後の比較表示
+- **プログレスバー**: 処理進行状況の表示
 
-1. Open `Tools` → `Texture Color Adjuster` in Unity Editor
-2. Select texture to adjust
-3. Adjust color parameters
-4. Apply changes
+### 💾 柔軟な保存オプション
+- **VRChat最適化設定**: VRChatアバター用の推奨設定を自動適用
+- **複数形式対応**: PNG、JPG、TGA形式での保存
+- **元ファイル保護**: 元ファイルの上書きか別名保存かを選択可能
+- **インポート設定自動更新**: 保存時にテクスチャインポート設定を自動更新
 
-## Requirements
+### 🔧 プリセット管理
+- **プリセット保存/読み込み**: よく使用する設定をプリセットとして保存
+- **デフォルトプリセット**: アニメ調、リアル調、ソフト調整の3つのプリセットを内蔵
 
-- Unity 2022.3 or higher
-- VRChat SDK 3.7.0 or higher (for VRChat projects)
+## インストール方法
 
-## License
+1. Unity プロジェクトを開く
+2. `TexColAdjuster` フォルダを `Assets/Editor` 配下にコピー
+3. Unity エディターでメニューから `Tools > TexColAdjuster` を選択
 
-MIT License - see LICENSE file for details.
+## 使用方法
+
+### 基本的な使い方
+
+1. **言語設定**
+   - ウィンドウ右上の言語ボタン（日本語/English）をクリックして言語を切り替え
+   - 設定は自動的に保存され、次回起動時に引き継がれます
+
+2. **テクスチャ選択**
+   - **基準テクスチャ**: 色調の基準となるテクスチャを選択
+   - **対象テクスチャ**: 調整対象のテクスチャを選択
+
+3. **調整パラメータ設定**
+   - **調整強度**: 調整の強さ（0-100%）
+   - **輝度を保持**: 元の明暗情報を保持するかどうか
+   - **調整モード**: 調整アルゴリズムの選択
+
+4. **プレビュー生成**
+   - `プレビュー生成` ボタンをクリックして結果を確認
+   - `リアルタイムプレビュー` を有効にするとパラメータ変更時に自動更新
+
+5. **調整適用**
+   - `調整を適用` ボタンをクリックして調整を適用
+   - 保存方法（上書き/別名保存）を選択
+
+### パーツで指定タブでの調整
+
+- `色を変えたい方` に色を変更したいGameObjectを、`この色にそろえたい` に参照GameObjectを設定します。ドラッグ&ドロップに対応しており、メインテクスチャは自動抽出されます。
+- 「NDMFを使用」をオンにするとテクスチャを書き換えずにアップロード時へ反映でき、適用ボタンは `パーツごとに適用` としてNDMFコンポーネントを追加します。オフの場合は従来どおりアセットへ直接書き込みます。
+- NDMF使用時のみ「全体に適用」ボタンが表示され、同じマテリアルを使うレンダラーへ一括でコンポーネントを生成できます。
+- 参考用GameObjectの入力欄下にある `色を絞る` をオンにすると高精度モードが有効になり、使用UV領域プレビューや自動設定が表示されます。
+- プレビューの再生成は `再生成` ボタンを使用します。ショットの確認後に `パーツごとに適用` もしくは `調整を適用` を実行してください。
+
+### VRChatアップロード時の挙動（NDMF使用時）
+
+- `TextureColorAdjustmentComponent` は VRChat SDK 3 環境では自動的に `IEditorOnly` として扱われ、最終ビルドには含まれません。
+- NDMFのビルドパイプライン中で調整済みテクスチャと複製マテリアルをベイクし、アバターの `AssetContainer` に登録します。
+- Optimizingフェーズで補助コンポーネントを自動削除するため、アップロード時に未知のMonoBehaviour警告が発生しません。
+
+### 調整モードの説明
+
+#### Lab Histogram Matching（推奨）
+- LAB色空間でのヒストグラムマッチングを使用
+- 最も自然で質感を保持した色調整が可能
+- 肌質や布質の表現に適している
+
+#### Hue Shift
+- 色相の一律シフトによる調整
+- 単純な色変更に適している
+- 処理が軽量で高速
+
+#### Color Transfer
+- RGB統計値を用いた色調転送
+- 全体的な色調の移行に適している
+- 写真的なテクスチャに効果的
+
+#### Adaptive Adjustment
+- 複数のアルゴリズムを組み合わせた高度な調整
+- 複雑なテクスチャに対応
+- 処理時間は長いが最高品質
+
+## 技術仕様
+
+### 対応Unity版本
+- Unity 2019.4 LTS 以降
+- Unity 2020.3 LTS
+- Unity 2021.3 LTS
+- Unity 2022.3 LTS
+
+### 対応テクスチャ形式
+- PNG（推奨）
+- JPG/JPEG
+- TGA
+- BMP
+- PSD
+- TIFF
+
+### システム要件
+- Unity Editor（Windows/Mac/Linux）
+- RAM: 4GB以上推奨（大きなテクスチャの場合）
+- 依存関係: 標準Unity APIのみ
+
+## 高度な使用方法
+
+### プリセット活用
+```csharp
+// 設定例
+- Anime Style: 強度75%、輝度保持ON、LABヒストグラムマッチング
+- Realistic: 強度50%、輝度保持ON、LABヒストグラムマッチング  
+- Soft Adjustment: 強度25%、輝度保持ON、LABヒストグラムマッチング
+```
+
+### VRChatアバター制作での活用例
+
+1. **肌色統一**
+   - 顔テクスチャを基準に、体のテクスチャの肌色を調整
+   - 強度: 60-80%、輝度保持: ON
+
+2. **衣装色合わせ**
+   - メインの衣装テクスチャを基準に、小物類の色調を統一
+   - 強度: 40-60%、輝度保持: ON
+
+3. **髪色調整**
+   - 髪テクスチャの色調を統一
+   - 強度: 70-90%、輝度保持: ON
+
+## トラブルシューティング
+
+### よくある問題と解決方法
+
+**Q: テクスチャが読み込めない**
+A: テクスチャのインポート設定で「Read/Write Enabled」を有効にしてください。
+
+**Q: プレビューが表示されない**
+A: 両方のテクスチャが正しく選択されているか確認してください。
+
+**Q: 処理が遅い**
+A: テクスチャサイズを小さくするか、Adjustment Modeを「Hue Shift」に変更してください。
+
+**Q: 色が不自然になる**
+A: Adjustment Intensityを下げるか、「Preserve Luminance」を有効にしてください。
+
+### パフォーマンス最適化
+
+- **大きなテクスチャ（4K以上）**: 処理前に2K程度にリサイズすることを推奨
+- **バッチ処理**: 複数のテクスチャを同時に処理する際は、Unity Editorのメモリ使用量に注意
+- **リアルタイムプレビュー**: 重い処理の場合は無効にして手動でプレビューを生成
+
+## 開発者向け情報
+
+### アーキテクチャ
+```
+TexColAdjuster/
+├── Editor/
+│   ├── TexColAdjusterWindow.cs      // メインUI（多言語対応）
+│   ├── ColorAdjuster.cs             // 色調整アルゴリズム
+│   ├── ColorSpaceConverter.cs       // 色空間変換
+│   ├── TextureProcessor.cs          // テクスチャ処理
+│   ├── TextureExporter.cs           // テクスチャ出力
+│   ├── EditorInputDialog.cs         // 入力ダイアログ
+│   └── LocalizationManager.cs       // 多言語対応システム
+└── README.md
+```
+
+### 主要クラス
+
+- `TexColAdjusterWindow`: メインのEditor Window（多言語対応）
+- `ColorAdjuster`: 色調整アルゴリズムの実装
+- `ColorSpaceConverter`: RGB↔LAB変換
+- `TextureProcessor`: テクスチャ読み込み・処理
+- `TextureExporter`: テクスチャ保存・出力
+- `LocalizationManager`: 多言語対応システム（日本語/英語）
+
+### 拡張方法
+
+新しい調整アルゴリズムを追加するには：
+
+1. `ColorAdjustmentMode` enumに新しいモードを追加
+2. `ColorAdjuster.AdjustColors()` メソッドに新しいケースを追加
+3. 新しいアルゴリズムメソッドを実装
+
+新しい言語を追加するには：
+
+1. `LocalizationManager.cs` の `Language` enumに新しい言語を追加
+2. `InitializeLocalizedStrings()` メソッドに新しい言語の文字列を追加
+3. 必要に応じて `GetLanguageDisplayName()` メソッドを更新
+
+## ライセンス
+
+このツールは個人利用・商用利用共に無料でご利用いただけます。
+VRChatアバター制作に自由にお使いください。
+
+## 更新履歴
+
+### Version 1.1.0
+- **日本語UI対応**: 完全日本語対応UI を追加
+- **言語切り替え機能**: 日本語⇔英語をワンクリックで切り替え
+- **ローカライゼーション**: 全てのUI要素、ダイアログ、メッセージを多言語対応
+- **設定保存**: 言語設定は自動保存され、次回起動時に引き継ぎ
+
+### Version 1.0.0
+- 初回リリース
+- 基本的な色調整機能
+- LAB色空間ヒストグラムマッチング
+- リアルタイムプレビュー
+- プリセット管理
+- VRChat最適化設定
+
+## サポート
+
+バグ報告や機能要望は以下までお願いします：
+- GitHub Issues（推奨）
+- Twitter: @YourTwitterHandle
+
+## 謝辞
+
+このツールの開発にあたり、色空間変換アルゴリズムやヒストグラムマッチング手法を参考にさせていただきました。
+VRChatアバター制作コミュニティの皆様からのフィードバックも貴重な参考となりました。
+
+---
+
+**TexColAdjuster** - より美しいVRChatアバターのために 🎨✨

@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace TexColAdjuster
+namespace TexColAdjuster.Editor
 {
     public static class ColorSpaceConverter
     {
@@ -257,29 +257,62 @@ namespace TexColAdjuster
         {
             // Convert to HSV for saturation adjustment
             Vector3 hsv = RGBtoHSV(color);
-            
-            // Apply saturation
+
+            // For backward compatibility this function applied saturation, brightness, then gamma.
+            // We'll keep it but also provide a more general function supporting hue shift.
             hsv.y *= saturation;
             hsv.y = Mathf.Clamp01(hsv.y);
-            
-            // Apply brightness
+
             hsv.z *= brightness;
             hsv.z = Mathf.Clamp01(hsv.z);
-            
-            // Convert back to RGB
+
             Color adjustedColor = HSVtoRGB(hsv);
-            
-            // Apply gamma correction
-            adjustedColor.r = Mathf.Pow(adjustedColor.r, 1.0f / gamma);
-            adjustedColor.g = Mathf.Pow(adjustedColor.g, 1.0f / gamma);
-            adjustedColor.b = Mathf.Pow(adjustedColor.b, 1.0f / gamma);
-            
-            // Clamp values
-            adjustedColor.r = Mathf.Clamp01(adjustedColor.r);
-            adjustedColor.g = Mathf.Clamp01(adjustedColor.g);
-            adjustedColor.b = Mathf.Clamp01(adjustedColor.b);
-            
+
+            // Use direct exponentiation so that gamma < 1 makes the image lighter and gamma > 1 makes it darker.
+            if (gamma <= 0f) gamma = 1f;
+            adjustedColor.r = Mathf.Clamp01(Mathf.Pow(adjustedColor.r, gamma));
+            adjustedColor.g = Mathf.Clamp01(Mathf.Pow(adjustedColor.g, gamma));
+            adjustedColor.b = Mathf.Clamp01(Mathf.Pow(adjustedColor.b, gamma));
+
             return adjustedColor;
+        }
+
+        /// <summary>
+        /// Apply hue shift (degrees), saturation multiplier, brightness multiplier and gamma correction to a color.
+        /// Hue shift is specified in degrees and wraps around 0-360.
+        /// </summary>
+        public static Color ApplyHSBG(Color color, float hueShiftDegrees, float saturation, float brightness, float gamma)
+        {
+            Vector3 hsv = RGBtoHSV(color);
+
+            // Apply hue shift
+            hsv.x = (hsv.x + hueShiftDegrees) % 360f;
+            if (hsv.x < 0f) hsv.x += 360f;
+
+            // Apply saturation and brightness multipliers
+            hsv.y = Mathf.Clamp01(hsv.y * saturation);
+            hsv.z = Mathf.Clamp01(hsv.z * brightness);
+
+            Color adjusted = HSVtoRGB(hsv);
+
+            // Apply gamma correction: gamma < 1 => lighter, gamma > 1 => darker
+            if (gamma <= 0f) gamma = 1f;
+            adjusted.r = Mathf.Clamp01(Mathf.Pow(adjusted.r, gamma));
+            adjusted.g = Mathf.Clamp01(Mathf.Pow(adjusted.g, gamma));
+            adjusted.b = Mathf.Clamp01(Mathf.Pow(adjusted.b, gamma));
+
+            adjusted.a = color.a;
+            return adjusted;
+        }
+
+        public static Color[] ApplyHSBGToArray(Color[] colors, float hueShiftDegrees, float saturation, float brightness, float gamma)
+        {
+            Color[] adjustedColors = new Color[colors.Length];
+            for (int i = 0; i < colors.Length; i++)
+            {
+                adjustedColors[i] = ApplyHSBG(colors[i], hueShiftDegrees, saturation, brightness, gamma);
+            }
+            return adjustedColors;
         }
         
         public static Color[] ApplyGammaSaturationBrightnessToArray(Color[] colors, float gamma, float saturation, float brightness)

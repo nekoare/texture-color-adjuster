@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
+using TexColAdjuster.Editor;
 
 namespace TexColAdjuster
 {
@@ -631,93 +632,183 @@ namespace TexColAdjuster
         }
 
         // Create a masked texture showing only the used UV areas
-        public static Texture2D CreateMaskedTexture(Texture2D sourceTexture, UVUsageData uvUsage, 
+        public static Texture2D CreateMaskedTexture(Texture2D sourceTexture, UVUsageData uvUsage,
             Color maskColor = default, float maskAlpha = 0.3f)
         {
-            if (sourceTexture == null || uvUsage == null) return null;
-            
+            if (sourceTexture == null || uvUsage == null)
+                return null;
+
             if (maskColor == default)
                 maskColor = new Color(0.2f, 0.2f, 0.2f, maskAlpha);
-            
-            // Make texture readable
-            var readableTexture = TextureProcessor.MakeTextureReadable(sourceTexture);
-            if (readableTexture == null) return null;
-            
-            Color[] sourcePixels = TextureUtils.GetPixelsSafe(readableTexture);
-            if (sourcePixels == null) return null;
-            
-            Color[] maskedPixels = new Color[sourcePixels.Length];
-            
-            for (int i = 0; i < sourcePixels.Length; i++)
+
+            // Make texture readable without altering original import settings
+            var readableTexture = TextureProcessor.MakeReadableCopy(sourceTexture);
+            if (readableTexture == null)
+                return null;
+
+            try
             {
-                if (i < uvUsage.usedPixels.Length && uvUsage.usedPixels[i])
+                Color[] sourcePixels = TextureUtils.GetPixelsSafe(readableTexture);
+                if (sourcePixels == null)
+                    return null;
+
+                Color[] maskedPixels = new Color[sourcePixels.Length];
+
+                for (int i = 0; i < sourcePixels.Length; i++)
                 {
-                    // Keep original color for used areas
-                    maskedPixels[i] = sourcePixels[i];
+                    if (i < uvUsage.usedPixels.Length && uvUsage.usedPixels[i])
+                    {
+                        // Keep original color for used areas
+                        maskedPixels[i] = sourcePixels[i];
+                    }
+                    else
+                    {
+                        // Apply mask for unused areas
+                        maskedPixels[i] = Color.Lerp(sourcePixels[i], maskColor, maskAlpha);
+                    }
                 }
-                else
+
+                var maskedTexture = TextureColorSpaceUtility.CreateRuntimeTextureLike(sourceTexture);
+                if (TextureUtils.SetPixelsSafe(maskedTexture, maskedPixels))
                 {
-                    // Apply mask for unused areas
-                    maskedPixels[i] = Color.Lerp(sourcePixels[i], maskColor, maskAlpha);
+                    // Debug info to verify mask creation
+                    int usedPixelCount = 0;
+                    for (int i = 0; i < uvUsage.usedPixels.Length; i++)
+                    {
+                        if (uvUsage.usedPixels[i])
+                            usedPixelCount++;
+                    }
+                    Debug.Log($"[CreateMaskedTexture] Created mask with {usedPixelCount} used pixels out of {uvUsage.usedPixels.Length} total");
+                    return maskedTexture;
                 }
+
+                TextureColorSpaceUtility.UnregisterRuntimeTexture(maskedTexture);
+                UnityEngine.Object.DestroyImmediate(maskedTexture);
+                return null;
             }
-            
-            var maskedTexture = new Texture2D(sourceTexture.width, sourceTexture.height, TextureFormat.RGBA32, false);
-            if (TextureUtils.SetPixelsSafe(maskedTexture, maskedPixels))
+            finally
             {
-                // Debug info to verify mask creation
-                int usedPixelCount = 0;
-                for (int i = 0; i < uvUsage.usedPixels.Length; i++)
-                {
-                    if (uvUsage.usedPixels[i]) usedPixelCount++;
-                }
-                Debug.Log($"[CreateMaskedTexture] Created mask with {usedPixelCount} used pixels out of {uvUsage.usedPixels.Length} total");
-                return maskedTexture;
+                UnityEngine.Object.DestroyImmediate(readableTexture);
             }
-            
-            UnityEngine.Object.DestroyImmediate(maskedTexture);
-            return null;
+        }
+
+        public static Texture2D CreateBinaryMaskTexture(UVUsageData uvUsage)
+        {
+            if (uvUsage == null || uvUsage.usedPixels == null || uvUsage.usedPixels.Length == 0)
+                return null;
+
+            var maskTexture = TextureColorSpaceUtility.CreateRuntimeTexture(uvUsage.textureWidth, uvUsage.textureHeight, TextureFormat.RGBA32, false, false);
+            maskTexture.wrapMode = TextureWrapMode.Clamp;
+            maskTexture.filterMode = FilterMode.Point;
+            maskTexture.alphaIsTransparency = true;
+
+            var pixels = new Color32[uvUsage.usedPixels.Length];
+            var onColor = new Color32(255, 255, 255, 255);
+            var offColor = new Color32(0, 0, 0, 0);
+
+            for (int i = 0; i < uvUsage.usedPixels.Length; i++)
+            {
+                pixels[i] = uvUsage.usedPixels[i] ? onColor : offColor;
+            }
+
+            maskTexture.SetPixels32(pixels);
+            maskTexture.Apply(false, false);
+
+            return maskTexture;
+        }
+
+        public static UVUsageData CreateUVUsageFromMask(Texture2D maskTexture, float threshold = 0.5f)
+        {
+            if (maskTexture == null)
+                return null;
+
+            var readableMask = TextureProcessor.MakeReadableCopy(maskTexture);
+            if (readableMask == null)
+                return null;
+
+            try
+            {
+                var maskPixels = TextureUtils.GetPixelsSafe(readableMask);
+                if (maskPixels == null || maskPixels.Length == 0)
+                    return null;
+
+                var uvUsage = new UVUsageData(maskTexture.width, maskTexture.height);
+
+                for (int i = 0; i < maskPixels.Length; i++)
+                {
+                    var color = maskPixels[i];
+                    bool used = color.a >= threshold || color.grayscale >= threshold;
+
+                    if (!used)
+                        continue;
+
+                    uvUsage.usedPixels[i] = true;
+
+                    int x = i % maskTexture.width;
+                    int y = i / maskTexture.width;
+                    float u = (x + 0.5f) / maskTexture.width;
+                    float v = (y + 0.5f) / maskTexture.height;
+                    uvUsage.usedUVs.Add(new Vector2(u, v));
+                }
+
+                CalculateUsageStatistics(uvUsage);
+
+                return uvUsage;
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(readableMask);
+            }
         }
 
         // Get dominant colors from only the used UV areas
         public static List<Color> ExtractDominantColorsFromUsedAreas(Texture2D sourceTexture, 
             UVUsageData uvUsage, int colorCount = 5)
         {
-            if (sourceTexture == null || uvUsage == null) 
+            if (sourceTexture == null || uvUsage == null)
                 return new List<Color>();
-            
-            // Make texture readable
-            var readableTexture = TextureProcessor.MakeTextureReadable(sourceTexture);
-            if (readableTexture == null) return new List<Color>();
-            
-            Color[] sourcePixels = TextureUtils.GetPixelsSafe(readableTexture);
-            if (sourcePixels == null) return new List<Color>();
-            
-            // Extract only used and opaque pixels
-            List<Color> usedPixels = new List<Color>();
-            for (int i = 0; i < sourcePixels.Length && i < uvUsage.usedPixels.Length; i++)
+
+            // Make texture readable without altering original import settings
+            var readableTexture = TextureProcessor.MakeReadableCopy(sourceTexture);
+            if (readableTexture == null)
+                return new List<Color>();
+
+            try
             {
-                if (uvUsage.usedPixels[i])
+                Color[] sourcePixels = TextureUtils.GetPixelsSafe(readableTexture);
+                if (sourcePixels == null)
+                    return new List<Color>();
+
+                // Extract only used and opaque pixels
+                var usedPixels = new List<Color>();
+                for (int i = 0; i < sourcePixels.Length && i < uvUsage.usedPixels.Length; i++)
                 {
+                    if (!uvUsage.usedPixels[i])
+                        continue;
+
                     Color pixel = sourcePixels[i];
                     // Only include opaque pixels in color analysis
-                    if (pixel.a >= 0.01f) // Use same threshold as ColorAdjuster
+                    if (pixel.a >= 0.01f)
                     {
                         usedPixels.Add(pixel);
                     }
                 }
+
+                if (usedPixels.Count == 0)
+                {
+                    Debug.LogWarning("[ExtractDominantColorsFromUsedAreas] No used pixels found for color extraction");
+                    return new List<Color>();
+                }
+
+                Debug.Log($"[ExtractDominantColorsFromUsedAreas] Extracted {usedPixels.Count} pixels from used UV areas for color analysis");
+
+                // Apply k-means clustering to used pixels only
+                return KMeansColorClustering(usedPixels.ToArray(), colorCount);
             }
-            
-            if (usedPixels.Count == 0)
+            finally
             {
-                Debug.LogWarning("[ExtractDominantColorsFromUsedAreas] No used pixels found for color extraction");
-                return new List<Color>();
+                UnityEngine.Object.DestroyImmediate(readableTexture);
             }
-            
-            Debug.Log($"[ExtractDominantColorsFromUsedAreas] Extracted {usedPixels.Count} pixels from used UV areas for color analysis");
-            
-            // Apply k-means clustering to used pixels only
-            return KMeansColorClustering(usedPixels.ToArray(), colorCount);
         }
 
         private static List<Color> KMeansColorClustering(Color[] pixels, int k)

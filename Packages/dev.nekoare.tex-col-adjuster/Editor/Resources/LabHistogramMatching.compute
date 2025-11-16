@@ -1,0 +1,232 @@
+// LAB Histogram Matching Compute Shader
+// TexColAdjuster GPU Processing
+
+#pragma kernel LabHistogramMatching
+
+// Input textures
+Texture2D<float4> TargetTexture;
+Texture2D<float4> ReferenceTexture;
+RWTexture2D<float4> Result;
+
+// LAB statistics (from reference and target)
+float4 TargetStats; // (lMean, aMean, bMean, unused)
+float4 TargetStdDev; // (lStd, aStd, bStd, unused)
+float4 ReferenceStats; // (lMean, aMean, bMean, unused)
+float4 ReferenceStdDev; // (lStd, aStd, bStd, unused)
+
+// Adjustment parameters
+float Intensity;
+float PreserveLuminance;
+float AlphaThreshold;
+
+// Color space conversion functions
+float3 RGBtoXYZ(float3 rgb)
+{
+    // Gamma correction
+    float r = rgb.r <= 0.04045 ? rgb.r / 12.92 : pow(max((rgb.r + 0.055) / 1.055, 0.0), 2.4);
+    float g = rgb.g <= 0.04045 ? rgb.g / 12.92 : pow(max((rgb.g + 0.055) / 1.055, 0.0), 2.4);
+    float b = rgb.b <= 0.04045 ? rgb.b / 12.92 : pow(max((rgb.b + 0.055) / 1.055, 0.0), 2.4);
+
+    // RGB to XYZ transformation matrix
+    float x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375;
+    float y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750;
+    float z = r * 0.0193339 + g * 0.1191920 + b * 0.9503041;
+
+    return float3(x, y, z);
+}
+
+float3 XYZtoLAB(float3 xyz)
+{
+    // D65 standard illuminant
+    const float3 whitePoint = float3(0.95047, 1.00000, 1.08883);
+
+    float3 normalized = xyz / whitePoint;
+
+    // Apply LAB transformation
+    float epsilon = 0.008856;
+    float kappa = 903.3;
+
+    float fx = normalized.x > epsilon ? pow(max(normalized.x, 0.0), 1.0 / 3.0) : (kappa * normalized.x + 16.0) / 116.0;
+    float fy = normalized.y > epsilon ? pow(max(normalized.y, 0.0), 1.0 / 3.0) : (kappa * normalized.y + 16.0) / 116.0;
+    float fz = normalized.z > epsilon ? pow(max(normalized.z, 0.0), 1.0 / 3.0) : (kappa * normalized.z + 16.0) / 116.0;
+
+    float L = 116.0 * fy - 16.0;
+    float A = 500.0 * (fx - fy);
+    float B = 200.0 * (fy - fz);
+
+    return float3(L, A, B);
+}
+
+float3 RGBtoLAB(float3 rgb)
+{
+    return XYZtoLAB(RGBtoXYZ(rgb));
+}
+
+float3 LABtoXYZ(float3 lab)
+{
+    float fy = (lab.x + 16.0) / 116.0;
+    float fx = lab.y / 500.0 + fy;
+    float fz = fy - lab.z / 200.0;
+
+    float epsilon = 0.008856;
+    float kappa = 903.3;
+
+    float xr = fx * fx * fx > epsilon ? fx * fx * fx : (116.0 * fx - 16.0) / kappa;
+    float yr = lab.x > kappa * epsilon ? fy * fy * fy : lab.x / kappa;
+    float zr = fz * fz * fz > epsilon ? fz * fz * fz : (116.0 * fz - 16.0) / kappa;
+
+    // D65 standard illuminant
+    const float3 whitePoint = float3(0.95047, 1.00000, 1.08883);
+
+    return float3(xr, yr, zr) * whitePoint;
+}
+
+float3 XYZtoRGB(float3 xyz)
+{
+    // XYZ to RGB transformation matrix
+    float r = xyz.x *  3.2404542 + xyz.y * -1.5371385 + xyz.z * -0.4985314;
+    float g = xyz.x * -0.9692660 + xyz.y *  1.8760108 + xyz.z *  0.0415560;
+    float b = xyz.x *  0.0556434 + xyz.y * -0.2040259 + xyz.z *  1.0572252;
+
+    // Inverse gamma correction
+    r = r <= 0.0031308 ? 12.92 * r : 1.055 * pow(max(r, 0.0), 1.0 / 2.4) - 0.055;
+    g = g <= 0.0031308 ? 12.92 * g : 1.055 * pow(max(g, 0.0), 1.0 / 2.4) - 0.055;
+    b = b <= 0.0031308 ? 12.92 * b : 1.055 * pow(max(b, 0.0), 1.0 / 2.4) - 0.055;
+
+    return saturate(float3(r, g, b));
+}
+
+float3 LABtoRGB(float3 lab)
+{
+    return XYZtoRGB(LABtoXYZ(lab));
+}
+
+float MatchHistogram(float value, float sourceMean, float sourceStd, float targetMean, float targetStd)
+{
+    if (sourceStd == 0.0)
+        return value;
+
+    // Normalize to standard distribution
+    float normalized = (value - sourceMean) / sourceStd;
+
+    // Scale to target distribution
+    return normalized * targetStd + targetMean;
+}
+
+float3 PreserveLuminanceFunc(float3 originalRGB, float3 adjustedRGB)
+{
+    float3 originalHSV;
+    float3 adjustedHSV;
+
+    // RGB to HSV conversion for original
+    float cmax = max(max(originalRGB.r, originalRGB.g), originalRGB.b);
+    float cmin = min(min(originalRGB.r, originalRGB.g), originalRGB.b);
+    float delta = cmax - cmin;
+
+    originalHSV.z = cmax; // V (brightness)
+
+    // RGB to HSV conversion for adjusted
+    cmax = max(max(adjustedRGB.r, adjustedRGB.g), adjustedRGB.b);
+    cmin = min(min(adjustedRGB.r, adjustedRGB.g), adjustedRGB.b);
+    delta = cmax - cmin;
+
+    float h = 0.0;
+    float s = 0.0;
+
+    if (delta != 0.0)
+    {
+        s = delta / cmax;
+
+        if (adjustedRGB.r >= cmax)
+            h = (adjustedRGB.g - adjustedRGB.b) / delta;
+        else if (adjustedRGB.g >= cmax)
+            h = 2.0 + (adjustedRGB.b - adjustedRGB.r) / delta;
+        else
+            h = 4.0 + (adjustedRGB.r - adjustedRGB.g) / delta;
+
+        h *= 60.0;
+        if (h < 0.0) h += 360.0;
+    }
+
+    adjustedHSV = float3(h, s, originalHSV.z); // Use original V
+
+    // HSV to RGB
+    float c = adjustedHSV.z * adjustedHSV.y;
+    float x = c * (1.0 - abs(fmod(adjustedHSV.x / 60.0, 2.0) - 1.0));
+    float m = adjustedHSV.z - c;
+
+    float3 rgb;
+    if (adjustedHSV.x < 60.0)
+        rgb = float3(c, x, 0.0);
+    else if (adjustedHSV.x < 120.0)
+        rgb = float3(x, c, 0.0);
+    else if (adjustedHSV.x < 180.0)
+        rgb = float3(0.0, c, x);
+    else if (adjustedHSV.x < 240.0)
+        rgb = float3(0.0, x, c);
+    else if (adjustedHSV.x < 300.0)
+        rgb = float3(x, 0.0, c);
+    else
+        rgb = float3(c, 0.0, x);
+
+    return rgb + float3(m, m, m);
+}
+
+[numthreads(8,8,1)]
+void LabHistogramMatching(uint3 id : SV_DispatchThreadID)
+{
+    uint width, height;
+    Result.GetDimensions(width, height);
+
+    if (id.x >= width || id.y >= height)
+        return;
+
+    // Read target pixel
+    float4 targetPixel = TargetTexture[id.xy];
+
+    // Skip transparent pixels
+    if (targetPixel.a < AlphaThreshold)
+    {
+        Result[id.xy] = targetPixel;
+        return;
+    }
+
+    // Convert to LAB
+    float3 originalLab = RGBtoLAB(targetPixel.rgb);
+
+    // Apply histogram matching
+    float adjustedL = MatchHistogram(originalLab.x, TargetStats.x, TargetStdDev.x, ReferenceStats.x, ReferenceStdDev.x);
+    float adjustedA = MatchHistogram(originalLab.y, TargetStats.y, TargetStdDev.y, ReferenceStats.y, ReferenceStdDev.y);
+    float adjustedB = MatchHistogram(originalLab.z, TargetStats.z, TargetStdDev.z, ReferenceStats.z, ReferenceStdDev.z);
+
+    // Apply intensity blending
+    float finalL, finalA, finalB;
+
+    if (PreserveLuminance > 0.5)
+    {
+        finalL = lerp(originalLab.x, adjustedL, Intensity * 0.5);
+    }
+    else
+    {
+        finalL = lerp(originalLab.x, adjustedL, Intensity);
+    }
+
+    finalA = lerp(originalLab.y, adjustedA, Intensity);
+    finalB = lerp(originalLab.z, adjustedB, Intensity);
+
+    float3 adjustedLabFinal = float3(finalL, finalA, finalB);
+
+    // Convert back to RGB
+    float3 adjustedRGB = LABtoRGB(adjustedLabFinal);
+
+    // Conditional luminance preservation
+    if (PreserveLuminance > 0.5)
+    {
+        float3 fullyPreserved = PreserveLuminanceFunc(targetPixel.rgb, adjustedRGB);
+        float preservationStrength = 1.0 - (Intensity * 0.5);
+        adjustedRGB = lerp(adjustedRGB, fullyPreserved, preservationStrength);
+    }
+
+    // Output with preserved alpha
+    Result[id.xy] = float4(adjustedRGB, targetPixel.a);
+}

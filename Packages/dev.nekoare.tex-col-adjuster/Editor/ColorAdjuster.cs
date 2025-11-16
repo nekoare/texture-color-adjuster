@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
+using TexColAdjuster;
+using TexColAdjuster.Runtime;
 
-namespace TexColAdjuster
+namespace TexColAdjuster.Editor
 {
     public static class ColorAdjuster
     {
@@ -45,13 +47,13 @@ namespace TexColAdjuster
             // Preserve transparency - skip processing for transparent pixels
             adjustedPixels = TransparencyUtils.PreserveTransparency(targetPixels, adjustedPixels);
             
-            // Use RGBA32 format to ensure SetPixels compatibility
-            var result = new Texture2D(targetTexture.width, targetTexture.height, TextureFormat.RGBA32, false);
+            var result = TextureColorSpaceUtility.CreateRuntimeTextureLike(targetTexture);
             if (TextureUtils.SetPixelsSafe(result, adjustedPixels))
             {
                 return result;
             }
-            
+
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(result);
             UnityEngine.Object.DestroyImmediate(result);
             return null;
         }
@@ -72,13 +74,13 @@ namespace TexColAdjuster
             // This prioritizes making the selected colors match exactly
             Color[] adjustedPixels = DirectColorMatching(targetPixels, targetColor, referenceColor, intensity, preserveLuminance, selectionRange);
             
-            // Use RGBA32 format to ensure SetPixels compatibility
-            var result = new Texture2D(targetTexture.width, targetTexture.height, TextureFormat.RGBA32, false);
+            var result = TextureColorSpaceUtility.CreateRuntimeTextureLike(targetTexture);
             if (TextureUtils.SetPixelsSafe(result, adjustedPixels))
             {
                 return result;
             }
-            
+
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(result);
             UnityEngine.Object.DestroyImmediate(result);
             return null;
         }
@@ -283,12 +285,13 @@ namespace TexColAdjuster
             }
             
             // Use RGBA32 format to ensure SetPixels compatibility
-            var result = new Texture2D(targetTexture.width, targetTexture.height, TextureFormat.RGBA32, false);
+            var result = TextureColorSpaceUtility.CreateRuntimeTextureLike(targetTexture);
             if (TextureUtils.SetPixelsSafe(result, adjustedPixels))
             {
                 return result;
             }
-            
+
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(result);
             UnityEngine.Object.DestroyImmediate(result);
             return null;
         }

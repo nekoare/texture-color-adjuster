@@ -1,8 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
+using TexColAdjuster.Runtime;
 
-namespace TexColAdjuster
+namespace TexColAdjuster.Editor
 {
     public enum Language
     {
@@ -54,26 +55,40 @@ namespace TexColAdjuster
             // Window Title
             AddLocalization("window_title", "TexColAdjuster", "TexColAdjuster");
             AddLocalization("window_subtitle", "VRChatアバター用テクスチャ色合わせツール", "VRChat Avatar Texture Color Adjuster");
-            AddLocalization("window_description", "高度なテクスチャ色調整ツール", "Advanced texture color matching tool");
             
             // Language Toggle
             AddLocalization("language_toggle", "言語 / Language", "Language / 言語");
             
             // Tabs
-            AddLocalization("tab_basic", "基本", "Basic");
+            AddLocalization("tab_basic", "テクスチャで指定", "Texture Based");
             AddLocalization("tab_color_adjust", "色調整", "Color Adjust");
             AddLocalization("tab_shader_settings", "シェーダー設定転送", "Shader Settings Transfer");
-            AddLocalization("tab_direct", "直接指定", "Direct");
+            AddLocalization("tab_direct", "パーツで指定", "Part-Based");
             
             // Texture Selection
             AddLocalization("texture_selection", "テクスチャ選択", "Texture Selection");
-            AddLocalization("reference_texture", "参考にしたい色:", "Desired Color (Reference):");
-            AddLocalization("target_texture", "色を変えたいテクスチャ:", "Texture to Adjust:");
+            AddLocalization("reference_texture", "参考にする画像", "Reference Image");
+            AddLocalization("target_texture", "元の画像", "Original Image");
+            AddLocalization("direct_reference_texture", "この色にそろえたい", "Match To This");
+            AddLocalization("direct_target_texture", "色を変えたい方", "To Recolor");
+            AddLocalization("reference_object", "参考にするオブジェクト", "Reference Object");
+            AddLocalization("target_object", "元のオブジェクト", "Original Object");
+            AddLocalization("reference_material", "参考にするマテリアル", "Reference Material");
+            AddLocalization("target_material", "元のマテリアル", "Original Material");
+            AddLocalization("select_gameobject_with_renderer", "Skinned Mesh RendererまたはMesh Rendererを持つGameObjectを選択してください", "Select a GameObject with a Skinned Mesh Renderer or Mesh Renderer.");
+            AddLocalization("renderer_not_found", "選択されたGameObjectにSkinned Mesh RendererまたはMesh Rendererが見つかりません", "No Skinned Mesh Renderer or Mesh Renderer found on the selected GameObject.");
+            AddLocalization("detected_component", "検出されたコンポーネント:", "Detected Component:");
+            AddLocalization("component_material_missing", "{0}にマテリアルが見つかりません", "No materials found for {0}.");
+            AddLocalization("material_selected", "選択中", "Selected");
+            AddLocalization("liltoon_supported", "✓ liltoon", "✓ liltoon");
+            AddLocalization("liltoon_unsupported", "⚠ 非liltoon", "⚠ non-liltoon");
             
             // Adjustment Parameters
-            AddLocalization("adjustment_parameters", "調整パラメータ", "Adjustment Parameters");
-            AddLocalization("adjustment_intensity", "調整強度", "Adjustment Intensity");
-            AddLocalization("preserve_luminance", "輝度を保持", "Preserve Luminance");
+            AddLocalization("adjustment_parameters", "調整項目", "Adjustment Items");
+            AddLocalization("processing_parameters", "調整項目", "Adjustment Items");
+            AddLocalization("adjustment_intensity", "調整の強さ", "Adjustment Strength");
+            AddLocalization("intensity", "強さ", "Strength");
+            AddLocalization("preserve_luminance", "明るさはそのまま", "Keep Brightness");
             AddLocalization("preserve_texture", "テクスチャ品質を保持", "Preserve Texture Quality");
             AddLocalization("adjustment_mode", "調整モード", "Adjustment Mode");
             
@@ -81,18 +96,26 @@ namespace TexColAdjuster
             AddLocalization("preview", "プレビュー", "Preview");
             AddLocalization("show_preview", "プレビューを表示", "Show Preview");
             AddLocalization("realtime_preview", "リアルタイムプレビュー", "Real-time Preview");
+            AddLocalization("direct_auto_preview", "自動プレビュー更新", "Auto Preview Updates");
+            AddLocalization("direct_manual_preview_hint", "プレビューが最新ではありません。『再生成』を押して更新してください。", "Preview is not up to date. Click Regenerate to refresh.");
             AddLocalization("original", "元画像", "Original");
             AddLocalization("adjusted", "調整後", "Adjusted");
             
             // Action Buttons
-            AddLocalization("generate_preview", "再生成", "Generate Preview");
+            AddLocalization("generate_preview", "再生成", "Regenerate");
+            AddLocalization("direct_regenerate", "再生成", "Regenerate");
             AddLocalization("apply_adjustment", "調整を適用", "Apply Adjustment");
+            AddLocalization("apply_to_parts", "パーツごとに適用", "Apply Per Part");
+            AddLocalization("ndmf_apply_all", "全体に適用", "Apply to All");
+            AddLocalization("reset_inputs", "入力をリセット", "Reset Inputs");
+            AddLocalization("ndmf_toggle_label", "NDMFを使用", "Use NDMF");
+            AddLocalization("ndmf_toggle_note", "テクスチャそのものを変更せず，アップロード時に反映されるようにします", "Applies at upload time without modifying the original textures.");
+            AddLocalization("direct_high_precision_toggle", "色を絞る", "Refine Range");
+            AddLocalization("direct_high_precision_header", "🎯 高精度モード (実験的機能)", "🎯 High Precision Mode (Experimental)");
             
             // Processing
             AddLocalization("processing", "処理中...", "Processing...");
             AddLocalization("processing_status", "処理: {0}", "Processing: {0}");
-            AddLocalization("processing_parameters", "処理パラメータ", "Processing Parameters");
-            AddLocalization("intensity", "強度", "Intensity");
             
             // Settings & Presets
             AddLocalization("settings_presets", "設定とプリセット", "Settings & Presets");
@@ -223,6 +246,46 @@ namespace TexColAdjuster
             AddLocalization("transfer_success", "設定転送が完了しました", "Settings transfer completed");
             AddLocalization("select_both_materials", "両方のマテリアルを選択してください", "Please select both materials");
             AddLocalization("materials_must_be_liltoon", "両方のマテリアルがliltoonである必要があります", "Both materials must be liltoon");
+
+            // Component Editor Localization
+            AddLocalization("component_preview_controls", "プレビュー設定", "Preview Controls");
+            AddLocalization("component_enable_preview", "プレビューを有効化", "Enable Preview");
+            AddLocalization("component_enable_preview_tooltip", "Scene Viewでリアルタイムプレビューを有効にします", "Enable real-time preview in Scene View");
+            AddLocalization("component_preview_on_cpu", "CPUでプレビュー", "Preview on CPU");
+            AddLocalization("component_preview_on_cpu_tooltip", "CPUで処理します（遅いですがより正確）", "Use CPU processing for preview (slower but more accurate)");
+            AddLocalization("component_preview_active", "プレビューをオフにしてもビルド時に処理が反映されます。", "Adjustments still apply at build time even if preview is off.");
+            AddLocalization("component_preview_hint", "動作が重いときは一度オフにしてみて下さい", "If performance suffers, try disabling it temporarily.");
+            AddLocalization("component_settings", "コンポーネント設定", "Component Settings");
+            AddLocalization("component_apply_on_build", "ビルドで適用", "Apply During Build");
+            AddLocalization("component_apply_on_build_tooltip", "ビルド時にこの調整を適用します", "Apply these adjustments during build");
+            AddLocalization("component_target_settings", "対象設定", "Target Settings");
+            AddLocalization("component_target_renderer", "対象レンダラー", "Target Renderer");
+            AddLocalization("component_material_slot", "マテリアルスロット", "Material Slot");
+            AddLocalization("component_current_material", "現在のマテリアル:", "Material:");
+            AddLocalization("component_current_texture", "現在のテクスチャ:", "Current Texture:");
+            AddLocalization("component_no_maintex", "マテリアルに_MainTexプロパティがありません。", "Material has no _MainTex property.");
+            AddLocalization("component_reference_texture", "参照テクスチャ", "Reference Texture");
+            AddLocalization("component_adjustment_settings", "調整設定", "Adjustment Settings");
+            AddLocalization("component_adjustment_mode", "調整モード", "Adjustment Mode");
+            AddLocalization("component_intensity", "強さ", "Strength");
+            AddLocalization("component_preserve_luminance", "明るさはそのまま", "Keep Brightness");
+            AddLocalization("component_dual_color_selection", "デュアルカラー選択", "Dual Color Selection");
+            AddLocalization("component_use_dual_color", "色を指定して変換", "Convert Using Selected Colors");
+            AddLocalization("component_target_color", "対象色", "Target Color");
+            AddLocalization("component_reference_color", "参照色", "Reference Color");
+            AddLocalization("component_selection_range", "選択範囲", "Selection Range");
+            AddLocalization("component_post_adjustments", "仕上げ調整", "Post Adjustments");
+            AddLocalization("component_post_adjustment_hue", "色味", "Hue");
+            AddLocalization("component_post_adjustment_hue_tooltip", "色相を調整します（-180〜180度）。", "Adjust hue in degrees (-180 to 180).");
+            AddLocalization("component_post_adjustment_saturation", "鮮やかさ", "Saturation");
+            AddLocalization("component_post_adjustment_saturation_tooltip", "全体の鮮やかさを調整します。", "Adjust overall saturation.");
+            AddLocalization("component_post_adjustment_brightness", "明るさ", "Brightness");
+            AddLocalization("component_post_adjustment_brightness_tooltip", "全体の明るさを調整します。", "Adjust overall brightness.");
+            AddLocalization("component_post_adjustment_gamma", "色の濃さ", "Gamma");
+            AddLocalization("component_post_adjustment_gamma_tooltip", "ガンマ補正を適用します（1で変化なし）。", "Apply gamma correction (1 = no change).");
+            AddLocalization("component_open_advanced_editor", "詳細エディタを開く", "Open Advanced Editor Window");
+            AddLocalization("component_advanced_editor_coming_soon", "詳細エディタ", "Advanced Editor");
+            AddLocalization("component_advanced_editor_message", "エディタウィンドウ統合は近日公開予定です。", "EditorWindow integration coming soon.");
         }
         
         private static void AddLocalization(string key, string japanese, string english)

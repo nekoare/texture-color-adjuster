@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace TexColAdjuster
+namespace TexColAdjuster.Editor
 {
     [Serializable]
     public class LiltoonPreset : ScriptableObject

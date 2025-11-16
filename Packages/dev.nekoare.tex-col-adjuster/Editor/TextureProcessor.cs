@@ -156,19 +156,60 @@ namespace TexColAdjuster
         {
             if (source == null)
                 return null;
-                
-            // Use RGBA32 format to ensure SetPixels compatibility
-            var duplicate = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+
+            var duplicate = TextureColorSpaceUtility.CreateRuntimeTextureLike(source);
             var pixels = TextureUtils.GetPixelsSafe(source);
             if (pixels != null && TextureUtils.SetPixelsSafe(duplicate, pixels))
             {
                 return duplicate;
             }
-            
+
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(duplicate);
             UnityEngine.Object.DestroyImmediate(duplicate);
             return null;
         }
-        
+
+        /// <summary>
+        /// Creates a readable copy of a texture using RenderTexture (GPU-based, non-destructive)
+        /// This method does NOT modify the original texture's import settings
+        /// </summary>
+        public static Texture2D MakeReadableCopy(Texture2D source)
+        {
+            if (source == null)
+                return null;
+
+            // Create a temporary RenderTexture aligned with the source texture's color space.
+            var readWrite = TextureColorSpaceUtility.IsTextureSRGB(source)
+                ? RenderTextureReadWrite.sRGB
+                : RenderTextureReadWrite.Linear;
+
+            RenderTexture tmp = RenderTexture.GetTemporary(
+                source.width,
+                source.height,
+                0,
+                RenderTextureFormat.ARGB32,
+                readWrite
+            );
+
+            // Blit the source texture to the RenderTexture
+            Graphics.Blit(source, tmp);
+
+            // Save the current RenderTexture
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture.active = tmp;
+
+            // Create a new readable Texture2D and read pixels from RenderTexture
+            Texture2D readableTexture = TextureColorSpaceUtility.CreateRuntimeTextureLike(source);
+            readableTexture.ReadPixels(new UnityEngine.Rect(0, 0, tmp.width, tmp.height), 0, 0);
+            readableTexture.Apply();
+
+            // Restore the previous RenderTexture
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(tmp);
+
+            return readableTexture;
+        }
+
         public static void SaveTexture(Texture2D texture, string path, bool overwrite = false)
         {
             if (texture == null || string.IsNullOrEmpty(path))
@@ -266,11 +307,11 @@ namespace TexColAdjuster
             if (source == null)
                 return null;
                 
-            // Use RGBA32 format to ensure SetPixels compatibility
-            var resized = new Texture2D(newWidth, newHeight, TextureFormat.RGBA32, false);
+            var resized = TextureColorSpaceUtility.CreateRuntimeTexture(newWidth, newHeight, TextureFormat.RGBA32, false, TextureColorSpaceUtility.IsTextureSRGB(source));
             var pixels = TextureUtils.GetPixelsSafe(source);
             if (pixels == null)
             {
+                TextureColorSpaceUtility.UnregisterRuntimeTexture(resized);
                 UnityEngine.Object.DestroyImmediate(resized);
                 return null;
             }
@@ -299,6 +340,7 @@ namespace TexColAdjuster
                 return resized;
             }
             
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(resized);
             UnityEngine.Object.DestroyImmediate(resized);
             return null;
         }
@@ -363,6 +405,7 @@ namespace TexColAdjuster
             try
             {
                 var pixels = texture.GetPixels();
+                TextureColorSpaceUtility.ConvertPixelsToSRGB(texture, pixels);
                 if (pixels == null || pixels.Length == 0)
                 {
                     Debug.LogError($"GetPixelsSafe failed: '{texture.name}' returned null or empty pixel array (format: {texture.format}, readable: {texture.isReadable})");
@@ -386,7 +429,8 @@ namespace TexColAdjuster
             try
             {
                 Debug.Log($"Attempting to set pixels on texture with format: {texture.format}, size: {texture.width}x{texture.height}");
-                texture.SetPixels(pixels);
+                var workingPixels = TextureColorSpaceUtility.ConvertPixelsToTextureSpace(texture, pixels);
+                texture.SetPixels(workingPixels);
                 texture.Apply();
                 return true;
             }
@@ -402,8 +446,7 @@ namespace TexColAdjuster
             if (source == null)
                 return null;
                 
-            // Use RGBA32 format to ensure SetPixels compatibility
-            var copy = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false);
+            var copy = TextureColorSpaceUtility.CreateRuntimeTextureLike(source);
             var pixels = GetPixelsSafe(source);
             
             if (pixels != null && SetPixelsSafe(copy, pixels))
@@ -411,6 +454,7 @@ namespace TexColAdjuster
                 return copy;
             }
             
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(copy);
             UnityEngine.Object.DestroyImmediate(copy);
             return null;
         }

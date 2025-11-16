@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEditor;
 using System.IO;
 
-namespace TexColAdjuster
+namespace TexColAdjuster.Editor
 {
     public static class LiltoonPresetReader
     {

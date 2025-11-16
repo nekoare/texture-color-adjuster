@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 更新履歴
 
+### 1.3.0 - 2025-11-16
+- NDMFサポートの追加
+  - NDMF統合によるビルド時の自動テクスチャ調整
+  - TextureColorAdjustmentComponentの追加
+  - ビルド時プレビュー機能
+  - 自動クリーンアップ機能
+- Runtimeフォルダの追加とRuntime Assembly Definition対応
+- VRChatアバター向けNDMFワークフローのサポート
+- vpmDependenciesにnadena.dev.ndmf (>=1.4.0)を追加
+
 ### 1.2
 - シェーダー設定転送タブのMaterialUnifyTool同等機能を完成
 - コンパイルエラーの解消
