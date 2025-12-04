@@ -16,8 +16,8 @@ namespace TexColAdjuster
         {
             if (sourceTexture == null) return null;
 
-            // Make texture readable
-            var readableTexture = TextureProcessor.MakeTextureReadable(sourceTexture);
+            // Create readable copy without modifying original texture
+            var readableTexture = TextureProcessor.MakeReadableCopy(sourceTexture);
             if (readableTexture == null) return null;
 
             // Convert to ColorPixel array for efficient processing

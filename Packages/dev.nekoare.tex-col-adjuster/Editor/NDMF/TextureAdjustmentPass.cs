@@ -124,17 +124,17 @@ namespace TexColAdjuster.Editor.NDMF
 
         private Texture2D ProcessTexture(BuildContext context, TextureColorAdjustmentComponent component, Texture2D originalTexture)
         {
-            TextureImportBackup originalBackup = null;
+            Texture2D readableTexture = null;
             Texture2D readableReference = null;
             Texture2D result = null;
 
             try
             {
-                // Ensure the texture is readable and backup settings
-                var readableTexture = TextureProcessor.MakeTextureReadable(originalTexture, out originalBackup);
+                // Create readable copy without modifying original texture import settings
+                readableTexture = TextureProcessor.MakeReadableCopy(originalTexture);
                 if (readableTexture == null)
                 {
-                    Debug.LogError($"[TexColorAdjuster] Failed to make texture readable: {originalTexture?.name ?? "null"}");
+                    Debug.LogError($"[TexColorAdjuster] Failed to create readable copy of texture: {originalTexture?.name ?? "null"}");
                     return null;
                 }
 
@@ -237,13 +237,12 @@ namespace TexColAdjuster.Editor.NDMF
             }
             finally
             {
-                // Restore original texture import settings (target texture only)
-                if (originalBackup != null)
+                // Clean up temporary texture copies
+                if (readableTexture != null && readableTexture != originalTexture)
                 {
-                    originalBackup.RestoreSettings();
+                    UnityEngine.Object.DestroyImmediate(readableTexture);
                 }
 
-                // Clean up temporary reference texture copy
                 if (readableReference != null && readableReference != component.referenceTexture)
                 {
                     UnityEngine.Object.DestroyImmediate(readableReference);

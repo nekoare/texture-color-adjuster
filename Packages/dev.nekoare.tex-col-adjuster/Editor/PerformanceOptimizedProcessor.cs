@@ -72,7 +72,7 @@ namespace TexColAdjuster
         {
             if (sourceTexture == null) return null;
 
-            var readableTexture = TextureProcessor.MakeTextureReadable(sourceTexture);
+            var readableTexture = TextureProcessor.MakeReadableCopy(sourceTexture);
             if (readableTexture == null) return null;
 
             Color[] sourceColors = TextureUtils.GetPixelsSafe(readableTexture);

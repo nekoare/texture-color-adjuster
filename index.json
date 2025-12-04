@@ -122,6 +122,38 @@
           ],
           "url": "https://nekoare.github.io/texture-color-adjuster/dev.nekoare.tex-col-adjuster-v1.3.0.zip",
           "zipSHA256": "58adb672a3b8d73a9ef185c84a5834fdb4fa63f080b3c53ff9a65260a9c3a166"
+        },
+        "1.3.1": {
+          "name": "dev.nekoare.tex-col-adjuster",
+          "displayName": "Texture Color Adjuster",
+          "version": "1.3.1",
+          "description": "Unity Editor extension for advanced texture color adjustment with support for various color spaces and intelligent color manipulation algorithms. Includes NDMF integration support.",
+          "unity": "2022.3",
+          "unityRelease": "0f1",
+          "author": {
+            "name": "nekoare",
+            "url": "https://github.com/nekoare"
+          },
+          "changelogUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/CHANGELOG.md",
+          "documentationUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/README.md",
+          "licenseUrl": "https://github.com/nekoare/texture-color-adjuster/blob/main/LICENSE",
+          "vpmDependencies": {
+            "com.vrchat.avatars": ">=3.7.0",
+            "nadena.dev.ndmf": ">=1.4.0"
+          },
+          "keywords": [
+            "texture",
+            "color",
+            "adjustment",
+            "unity",
+            "editor",
+            "image processing",
+            "color matching",
+            "lab color space",
+            "ndmf"
+          ],
+          "url": "https://nekoare.github.io/texture-color-adjuster/dev.nekoare.tex-col-adjuster-v1.3.1.zip",
+          "zipSHA256": "35e52323a866910eef0efbc3944889c2b117b6142ea16f23faf600c283eccb64"
         }
       }
     }

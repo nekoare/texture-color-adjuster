@@ -1587,39 +1587,30 @@ namespace TexColAdjuster
             
             try
             {
-                // Ensure both textures are readable before processing
-                TextureImportBackup targetBackup, referenceBackup;
-                var readableTarget = TextureProcessor.MakeTextureReadable(targetTexture, out targetBackup);
-                var readableReference = TextureProcessor.MakeTextureReadable(referenceTexture, out referenceBackup);
-                
+                // Create readable copies without modifying original textures
+                var readableTarget = TextureProcessor.MakeReadableCopy(targetTexture);
+                var readableReference = TextureProcessor.MakeReadableCopy(referenceTexture);
+
                 // Validate textures and log format information
                 Debug.Log($"Target texture: {targetTexture.name}, Format: {(readableTarget != null ? readableTarget.format.ToString() : "NULL")}, Size: {(readableTarget != null ? $"{readableTarget.width}x{readableTarget.height}" : "NULL")}");
                 Debug.Log($"Reference texture: {referenceTexture.name}, Format: {(readableReference != null ? readableReference.format.ToString() : "NULL")}, Size: {(readableReference != null ? $"{readableReference.width}x{readableReference.height}" : "NULL")}");
-                
-                // Check if MakeTextureReadable failed
+
+                // Check if MakeReadableCopy failed
                 if (readableTarget == null)
                 {
-                    throw new Exception($"Could not make target texture '{targetTexture.name}' readable. The texture may be corrupted or in an unsupported format.");
+                    throw new Exception($"Could not create readable copy of target texture '{targetTexture.name}'. The texture may be corrupted or in an unsupported format.");
                 }
                 if (readableReference == null)
                 {
-                    // Restore target texture settings if reference failed
-                    targetBackup?.RestoreSettings();
-                    throw new Exception($"Could not make reference texture '{referenceTexture.name}' readable. The texture may be corrupted or in an unsupported format.");
+                    throw new Exception($"Could not create readable copy of reference texture '{referenceTexture.name}'. The texture may be corrupted or in an unsupported format.");
                 }
                 
                 if (!TextureProcessor.ValidateTexture(readableTarget))
                 {
-                    // Restore settings on failure
-                    targetBackup?.RestoreSettings();
-                    referenceBackup?.RestoreSettings();
                     throw new Exception($"Target texture '{targetTexture.name}' (format: {readableTarget.format}) is not readable or corrupted");
                 }
                 if (!TextureProcessor.ValidateTexture(readableReference))
                 {
-                    // Restore settings on failure
-                    targetBackup?.RestoreSettings();
-                    referenceBackup?.RestoreSettings();
                     throw new Exception($"Reference texture '{referenceTexture.name}' (format: {readableReference.format}) is not readable or corrupted");
                 }
                 
@@ -1681,11 +1672,13 @@ namespace TexColAdjuster
                     UnityEngine.Object.DestroyImmediate(previewTarget, true);
                 if (previewReference != readableReference)
                     UnityEngine.Object.DestroyImmediate(previewReference, true);
-                
-                // Restore original texture import settings after processing
-                targetBackup?.RestoreSettings();
-                referenceBackup?.RestoreSettings();
-                
+
+                // Clean up readable copies
+                if (readableTarget != null)
+                    UnityEngine.Object.DestroyImmediate(readableTarget, true);
+                if (readableReference != null)
+                    UnityEngine.Object.DestroyImmediate(readableReference, true);
+
                 processingProgress = 1f;
                 showPreview = true;
                 previewGenerated = previewTexture != null;
@@ -1759,9 +1752,9 @@ namespace TexColAdjuster
             
             try
             {
-                // Ensure both textures are readable before processing
-                var readableTarget = TextureProcessor.MakeTextureReadable(targetTexture);
-                var readableReference = TextureProcessor.MakeTextureReadable(referenceTexture);
+                // Create readable copies without modifying original textures
+                var readableTarget = TextureProcessor.MakeReadableCopy(targetTexture);
+                var readableReference = TextureProcessor.MakeReadableCopy(referenceTexture);
                 
                 processingProgress = 0.3f;
                 Repaint();
@@ -1832,9 +1825,9 @@ namespace TexColAdjuster
         {
             if (source == null) return null;
             
-            // Ensure texture is readable before trying to get pixels
-            var readableTexture = TextureProcessor.MakeTextureReadable(source);
-            return TextureUtils.CreateCopy(readableTexture);
+            // Create readable copy without modifying original texture
+            var readableTexture = TextureProcessor.MakeReadableCopy(source);
+            return readableTexture;
         }
         
         private void LoadPresets()
@@ -2368,9 +2361,9 @@ namespace TexColAdjuster
             
             try
             {
-                // Use existing color adjustment logic
-                var readableTarget = TextureProcessor.MakeTextureReadable(targetTexture);
-                var readableReference = TextureProcessor.MakeTextureReadable(referenceTexture);
+                // Create readable copies without modifying original textures
+                var readableTarget = TextureProcessor.MakeReadableCopy(targetTexture);
+                var readableReference = TextureProcessor.MakeReadableCopy(referenceTexture);
                 
                 var adjustedTexture = ColorAdjuster.AdjustColors(
                     readableTarget, 
@@ -2712,7 +2705,7 @@ namespace TexColAdjuster
             DisposeCachedTexture(ref cache, ref cachedSource);
 
             cachedSource = source;
-            cache = TextureProcessor.MakeTextureReadable(source);
+            cache = TextureProcessor.MakeReadableCopy(source);
             return cache;
         }
 
@@ -2967,8 +2960,8 @@ namespace TexColAdjuster
             
             try
             {
-                var readableTexture = TextureProcessor.MakeTextureReadable(singleTexture);
-                
+                var readableTexture = TextureProcessor.MakeReadableCopy(singleTexture);
+
                 // Create preview copy
                 singleTexturePreview = DuplicateTexture(readableTexture);
                 
@@ -3031,7 +3024,7 @@ namespace TexColAdjuster
             
             try
             {
-                var readableTexture = TextureProcessor.MakeTextureReadable(singleTexture);
+                var readableTexture = TextureProcessor.MakeReadableCopy(singleTexture);
                 var result = DuplicateTexture(readableTexture);
                 
                 if (result != null)
@@ -3397,7 +3390,7 @@ namespace TexColAdjuster
                 // Get hover color
                 try
                 {
-                    var readableTexture = TextureProcessor.MakeTextureReadable(targetTexture);
+                    var readableTexture = TextureProcessor.MakeReadableCopy(targetTexture);
                     if (readableTexture != null)
                     {
                         hoverColor = readableTexture.GetPixel(pixelX, pixelY);
@@ -4091,7 +4084,7 @@ namespace TexColAdjuster
                 {
                     try
                     {
-                        var readableTexture = TextureProcessor.MakeTextureReadable(texture);
+                        var readableTexture = TextureProcessor.MakeReadableCopy(texture);
                         if (readableTexture != null)
                         {
                             previousColor = readableTexture.GetPixel(pixelX, pixelY);
@@ -4436,8 +4429,8 @@ namespace TexColAdjuster
         private Texture2D ProcessBalanceAdjustment(Texture2D sourceTexture)
         {
             if (sourceTexture == null) return null;
-            
-            var readableTexture = TextureProcessor.MakeTextureReadable(sourceTexture);
+
+            var readableTexture = TextureProcessor.MakeReadableCopy(sourceTexture);
             if (readableTexture == null) return null;
             
             Color[] sourcePixels = TextureUtils.GetPixelsSafe(readableTexture);
@@ -4785,10 +4778,10 @@ namespace TexColAdjuster
                 }
                 
                 // Create new copy of current texture
-                var readableTexture = TextureProcessor.MakeTextureReadable(currentTexture);
+                var readableTexture = TextureProcessor.MakeReadableCopy(currentTexture);
                 if (readableTexture != null)
                 {
-                    originalTexture = TextureUtils.CreateCopy(readableTexture);
+                    originalTexture = readableTexture;
                 }
             }
         }
