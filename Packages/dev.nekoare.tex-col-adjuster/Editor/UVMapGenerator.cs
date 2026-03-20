@@ -121,6 +121,96 @@ namespace TexColAdjuster
             }
         }
 
+        /// <summary>
+        /// Generate a filled UV coverage mask. White = UV covered, Black = not covered.
+        /// </summary>
+        public static Texture2D GenerateUVMask(Mesh mesh, int textureWidth, int textureHeight, int materialIndex = 0)
+        {
+            if (mesh == null) return null;
+            if (materialIndex >= mesh.subMeshCount) materialIndex = 0;
+
+            var triangles = mesh.GetTriangles(materialIndex);
+            var uvs = mesh.uv;
+
+            if (uvs == null || uvs.Length == 0 || triangles == null || triangles.Length == 0)
+                return null;
+
+            // Normalize UVs to 0-1 range
+            var normalizedUVs = new Vector2[uvs.Length];
+            for (int i = 0; i < uvs.Length; i++)
+            {
+                normalizedUVs[i] = new Vector2(Mathf.Repeat(uvs[i].x, 1.0f), Mathf.Repeat(uvs[i].y, 1.0f));
+            }
+
+            var mask = TextureColorSpaceUtility.CreateRuntimeTexture(textureWidth, textureHeight, TextureFormat.RGBA32, false, true);
+            var pixels = new Color[textureWidth * textureHeight];
+
+            // Draw filled UV triangles
+            for (int i = 0; i < triangles.Length; i += 3)
+            {
+                if (i + 2 >= triangles.Length) continue;
+                int i0 = triangles[i], i1 = triangles[i + 1], i2 = triangles[i + 2];
+                if (i0 >= normalizedUVs.Length || i1 >= normalizedUVs.Length || i2 >= normalizedUVs.Length) continue;
+
+                Vector2 uv0 = normalizedUVs[i0];
+                Vector2 uv1 = normalizedUVs[i1];
+                Vector2 uv2 = normalizedUVs[i2];
+
+                // Convert UV to pixel coordinates (UV origin = bottom-left, same as SetPixels)
+                Vector2 p0 = new Vector2(uv0.x * textureWidth, uv0.y * textureHeight);
+                Vector2 p1 = new Vector2(uv1.x * textureWidth, uv1.y * textureHeight);
+                Vector2 p2 = new Vector2(uv2.x * textureWidth, uv2.y * textureHeight);
+
+                // Rasterize filled triangle using scanline
+                FillTriangle(pixels, p0, p1, p2, textureWidth, textureHeight);
+            }
+
+            mask.SetPixels(pixels);
+            mask.Apply();
+            return mask;
+        }
+
+        private static void FillTriangle(Color[] pixels, Vector2 v0, Vector2 v1, Vector2 v2, int width, int height)
+        {
+            // Sort vertices by Y
+            if (v0.y > v1.y) { var t = v0; v0 = v1; v1 = t; }
+            if (v0.y > v2.y) { var t = v0; v0 = v2; v2 = t; }
+            if (v1.y > v2.y) { var t = v1; v1 = v2; v2 = t; }
+
+            int yMin = Mathf.Max(0, Mathf.FloorToInt(v0.y));
+            int yMax = Mathf.Min(height - 1, Mathf.CeilToInt(v2.y));
+
+            for (int y = yMin; y <= yMax; y++)
+            {
+                float xLeft, xRight;
+
+                if (y < v1.y)
+                {
+                    float t02 = (v2.y - v0.y) > 0 ? (y - v0.y) / (v2.y - v0.y) : 0;
+                    float t01 = (v1.y - v0.y) > 0 ? (y - v0.y) / (v1.y - v0.y) : 0;
+                    xLeft = v0.x + (v2.x - v0.x) * t02;
+                    xRight = v0.x + (v1.x - v0.x) * t01;
+                }
+                else
+                {
+                    float t02 = (v2.y - v0.y) > 0 ? (y - v0.y) / (v2.y - v0.y) : 0;
+                    float t12 = (v2.y - v1.y) > 0 ? (y - v1.y) / (v2.y - v1.y) : 0;
+                    xLeft = v0.x + (v2.x - v0.x) * t02;
+                    xRight = v1.x + (v2.x - v1.x) * t12;
+                }
+
+                if (xLeft > xRight) { float t = xLeft; xLeft = xRight; xRight = t; }
+
+                int xMin = Mathf.Max(0, Mathf.FloorToInt(xLeft));
+                int xMax = Mathf.Min(width - 1, Mathf.CeilToInt(xRight));
+
+                for (int x = xMin; x <= xMax; x++)
+                {
+                    pixels[y * width + x] = Color.white;
+                }
+            }
+        }
+
         public static MeshInfo GetMeshInfo(GameObject gameObject, Texture2D targetTexture, int materialIndex)
         {
             if (gameObject == null) return null;

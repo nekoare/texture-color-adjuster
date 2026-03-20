@@ -192,9 +192,17 @@ namespace TexColAdjuster
             GUI.enabled = true;
         }
 
+        private bool showUVMaskOverlay = false;
+
         private void DrawReferenceAndAdjustedPreview(Texture refTex, Texture adjustedTex)
         {
+            EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField(LocalizationManager.Get("preview"), EditorStyles.boldLabel);
+            if (_cachedTargetUVMask != null || _cachedReferenceUVMask != null)
+            {
+                showUVMaskOverlay = GUILayout.Toggle(showUVMaskOverlay, "UV領域表示", "Button", GUILayout.Width(90));
+            }
+            EditorGUILayout.EndHorizontal();
 
             float availableWidth = EditorGUIUtility.currentViewWidth - 30f;
             float halfWidth = availableWidth / 2f;
@@ -207,16 +215,85 @@ namespace TexColAdjuster
             // Left: Reference
             EditorGUILayout.BeginVertical();
             EditorGUILayout.LabelField(LocalizationManager.Get("direct_reference_texture"), EditorStyles.centeredGreyMiniLabel);
-            GUILayout.Label(refTex, GUILayout.Width(halfWidth), GUILayout.Height(previewHeight));
+            Rect refRect = GUILayoutUtility.GetRect(halfWidth, previewHeight);
+            GUI.DrawTexture(refRect, refTex, ScaleMode.ScaleToFit);
+            if (showUVMaskOverlay && _cachedReferenceUVMask != null)
+            {
+                DrawUVMaskOverlay(refRect, _cachedReferenceUVMask);
+            }
             EditorGUILayout.EndVertical();
 
             // Right: Adjusted
             EditorGUILayout.BeginVertical();
             EditorGUILayout.LabelField(LocalizationManager.Get("adjusted"), EditorStyles.centeredGreyMiniLabel);
-            GUILayout.Label(adjustedTex, GUILayout.Width(halfWidth), GUILayout.Height(previewHeight));
+            Rect adjRect = GUILayoutUtility.GetRect(halfWidth, previewHeight);
+            GUI.DrawTexture(adjRect, adjustedTex, ScaleMode.ScaleToFit);
+            if (showUVMaskOverlay && _cachedTargetUVMask != null)
+            {
+                DrawUVMaskOverlay(adjRect, _cachedTargetUVMask);
+            }
             EditorGUILayout.EndVertical();
 
             EditorGUILayout.EndHorizontal();
+        }
+
+        private Texture2D _uvOverlayTexture = null;
+        private Texture2D _uvOverlaySource = null;
+
+        private void DrawUVMaskOverlay(Rect imageRect, Texture2D uvMask)
+        {
+            // Calculate actual image rect within the ScaleToFit area
+            float imageAspect = (float)uvMask.width / uvMask.height;
+            float rectAspect = imageRect.width / imageRect.height;
+
+            Rect actualRect;
+            if (imageAspect > rectAspect)
+            {
+                float h = imageRect.width / imageAspect;
+                actualRect = new Rect(imageRect.x, imageRect.y + (imageRect.height - h) / 2f, imageRect.width, h);
+            }
+            else
+            {
+                float w = imageRect.height * imageAspect;
+                actualRect = new Rect(imageRect.x + (imageRect.width - w) / 2f, imageRect.y, w, imageRect.height);
+            }
+
+            // Create colored overlay from mask (cached)
+            if (_uvOverlayTexture == null || _uvOverlaySource != uvMask)
+            {
+                if (_uvOverlayTexture != null)
+                    UnityEngine.Object.DestroyImmediate(_uvOverlayTexture, true);
+
+                // Low resolution overlay (max 256px) for display only
+                int maxSize = 256;
+                int w = Mathf.Min(uvMask.width, maxSize);
+                int h = Mathf.Min(uvMask.height, maxSize);
+                if (uvMask.width > uvMask.height)
+                    h = Mathf.Max(1, w * uvMask.height / uvMask.width);
+                else
+                    w = Mathf.Max(1, h * uvMask.width / uvMask.height);
+
+                _uvOverlayTexture = new Texture2D(w, h, TextureFormat.RGBA32, false, true);
+                var overlayPixels = new Color[w * h];
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+                        // Sample from source mask with nearest neighbor
+                        int srcX = x * uvMask.width / w;
+                        int srcY = y * uvMask.height / h;
+                        float maskVal = uvMask.GetPixel(srcX, srcY).r;
+                        overlayPixels[y * w + x] = maskVal > 0.5f
+                            ? new Color(0f, 1f, 0f, 0.35f)
+                            : new Color(0f, 0f, 0f, 0f);
+                    }
+                }
+                _uvOverlayTexture.SetPixels(overlayPixels);
+                _uvOverlayTexture.Apply();
+                _uvOverlaySource = uvMask;
+            }
+
+            GUI.DrawTexture(actualRect, _uvOverlayTexture, ScaleMode.StretchToFill, true);
         }
 
         private void DrawProcessingParameters()

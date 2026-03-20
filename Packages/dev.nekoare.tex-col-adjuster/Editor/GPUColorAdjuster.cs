@@ -62,7 +62,9 @@ namespace TexColAdjuster.Editor
             Texture2D referenceTexture,
             float intensity,
             bool preserveLuminance,
-            ColorAdjustmentMode mode)
+            ColorAdjustmentMode mode,
+            Texture2D targetUVMask = null,
+            Texture2D referenceUVMask = null)
         {
             if (!IsGPUProcessingAvailable())
             {
@@ -81,7 +83,7 @@ namespace TexColAdjuster.Editor
                 switch (mode)
                 {
                     case ColorAdjustmentMode.LabHistogramMatching:
-                        return LabHistogramMatchingGPU(targetTexture, referenceTexture, intensity, preserveLuminance);
+                        return LabHistogramMatchingGPU(targetTexture, referenceTexture, intensity, preserveLuminance, targetUVMask, referenceUVMask);
 
                     default:
                         Debug.LogWarning($"[TexColorAdjuster GPU] Mode {mode} is not yet implemented for GPU. Falling back to CPU.");
@@ -99,7 +101,9 @@ namespace TexColAdjuster.Editor
             Texture2D targetTexture,
             Texture2D referenceTexture,
             float intensity,
-            bool preserveLuminance)
+            bool preserveLuminance,
+            Texture2D targetUVMask = null,
+            Texture2D referenceUVMask = null)
         {
             // All intermediate RTs are Linear: Blit handles sRGB→Linear decode,
             // compute shader works in linear space, no double sRGB decode/encode
@@ -109,11 +113,11 @@ namespace TexColAdjuster.Editor
 
             try
             {
-                // Step 1: Calculate statistics for target texture
-                var targetStats = CalculateLabStatisticsGPU(targetRT);
+                // Step 1: Calculate statistics for target texture (UV masked if available)
+                var targetStats = CalculateLabStatisticsGPU(targetRT, targetUVMask);
 
-                // Step 2: Calculate statistics for reference texture
-                var referenceStats = CalculateLabStatisticsGPU(referenceRT);
+                // Step 2: Calculate statistics for reference texture (UV masked if available)
+                var referenceStats = CalculateLabStatisticsGPU(referenceRT, referenceUVMask);
 
                 // Step 3: Apply histogram matching
                 int kernel = _labHistogramShader.FindKernel("LabHistogramMatching");
@@ -157,15 +161,25 @@ namespace TexColAdjuster.Editor
             public float lStd, aStd, bStd;
         }
 
-        private static LabStatistics CalculateLabStatisticsGPU(RenderTexture texture)
+        private static LabStatistics CalculateLabStatisticsGPU(RenderTexture texture, Texture uvMask = null)
         {
             int width = texture.width;
             int height = texture.height;
-            int pixelCount = width * height;
 
             // Create buffers for reduction (4 floats: L, a, b, count/unused)
             ComputeBuffer meanBuffer = new ComputeBuffer(4, sizeof(float));
             ComputeBuffer stdDevBuffer = new ComputeBuffer(4, sizeof(float));
+
+            // Create a dummy 1x1 black texture if no UV mask provided
+            Texture2D dummyMask = null;
+            Texture maskTex = uvMask;
+            if (maskTex == null)
+            {
+                dummyMask = new Texture2D(1, 1, TextureFormat.R8, false, true);
+                dummyMask.SetPixel(0, 0, Color.black);
+                dummyMask.Apply();
+                maskTex = dummyMask;
+            }
 
             try
             {
@@ -176,8 +190,10 @@ namespace TexColAdjuster.Editor
                 // Step 1: Calculate mean
                 int meanKernel = _labStatisticsShader.FindKernel("ComputeMean");
                 _labStatisticsShader.SetTexture(meanKernel, "InputTexture", texture);
+                _labStatisticsShader.SetTexture(meanKernel, "UVMask", maskTex);
                 _labStatisticsShader.SetBuffer(meanKernel, "MeanBuffer", meanBuffer);
                 _labStatisticsShader.SetFloat("AlphaThreshold", ColorAdjuster.ALPHA_THRESHOLD);
+                _labStatisticsShader.SetInt("UseUVMask", uvMask != null ? 1 : 0);
 
                 int threadGroupsX = Mathf.CeilToInt(width / 8.0f);
                 int threadGroupsY = Mathf.CeilToInt(height / 8.0f);
@@ -198,9 +214,11 @@ namespace TexColAdjuster.Editor
                 // Step 2: Calculate standard deviation
                 int stdDevKernel = _labStatisticsShader.FindKernel("ComputeStdDev");
                 _labStatisticsShader.SetTexture(stdDevKernel, "InputTexture", texture);
+                _labStatisticsShader.SetTexture(stdDevKernel, "UVMask", maskTex);
                 _labStatisticsShader.SetBuffer(stdDevKernel, "StdDevBuffer", stdDevBuffer);
                 _labStatisticsShader.SetVector("MeanValues", new Vector4(stats.lMean, stats.aMean, stats.bMean, 0));
                 _labStatisticsShader.SetFloat("AlphaThreshold", ColorAdjuster.ALPHA_THRESHOLD);
+                _labStatisticsShader.SetInt("UseUVMask", uvMask != null ? 1 : 0);
 
                 _labStatisticsShader.Dispatch(stdDevKernel, threadGroupsX, threadGroupsY, 1);
 
@@ -218,6 +236,8 @@ namespace TexColAdjuster.Editor
             {
                 meanBuffer?.Release();
                 stdDevBuffer?.Release();
+                if (dummyMask != null)
+                    UnityEngine.Object.DestroyImmediate(dummyMask);
             }
         }
 

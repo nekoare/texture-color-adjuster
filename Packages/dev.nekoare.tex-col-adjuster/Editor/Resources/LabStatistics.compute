@@ -5,11 +5,13 @@
 #pragma kernel ComputeStdDev
 
 Texture2D<float4> InputTexture;
+Texture2D<float4> UVMask; // UV coverage mask (r > 0.5 = covered)
 RWStructuredBuffer<uint> MeanBuffer; // (lSum, aSum, bSum, count) as uint bits
 RWStructuredBuffer<uint> StdDevBuffer; // (lVariance, aVariance, bVariance, unused) as uint bits
 
 float4 MeanValues; // Pre-calculated means for StdDev kernel
 float AlphaThreshold;
+int UseUVMask; // 1 = use UV mask, 0 = use alpha threshold only
 
 groupshared float4 sharedData[64]; // For reduction
 
@@ -60,8 +62,19 @@ void ComputeMean(uint3 id : SV_DispatchThreadID, uint3 groupThreadID : SV_GroupT
     {
         float4 pixel = InputTexture[id.xy];
 
-        // Only process opaque pixels
-        if (pixel.a >= AlphaThreshold)
+        // Check UV mask or alpha threshold
+        bool included = false;
+        if (UseUVMask > 0)
+        {
+            float maskValue = UVMask[id.xy].r;
+            included = maskValue > 0.5 && pixel.a >= AlphaThreshold;
+        }
+        else
+        {
+            included = pixel.a >= AlphaThreshold;
+        }
+
+        if (included)
         {
             float3 lab = RGBtoLAB(pixel.rgb);
             localSum = float4(lab.x, lab.y, lab.z, 1.0);
@@ -136,8 +149,18 @@ void ComputeStdDev(uint3 id : SV_DispatchThreadID, uint3 groupThreadID : SV_Grou
     {
         float4 pixel = InputTexture[id.xy];
 
-        // Only process opaque pixels
-        if (pixel.a >= AlphaThreshold)
+        bool included = false;
+        if (UseUVMask > 0)
+        {
+            float maskValue = UVMask[id.xy].r;
+            included = maskValue > 0.5 && pixel.a >= AlphaThreshold;
+        }
+        else
+        {
+            included = pixel.a >= AlphaThreshold;
+        }
+
+        if (included)
         {
             float3 lab = RGBtoLAB(pixel.rgb);
 

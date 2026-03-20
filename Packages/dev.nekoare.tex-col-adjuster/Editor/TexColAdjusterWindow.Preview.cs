@@ -44,7 +44,52 @@ namespace TexColAdjuster
             }
         }
 
-        
+        private Texture2D GenerateUVMaskForComponent(Component component, Material material, Texture2D texture)
+        {
+            if (component == null || texture == null) return null;
+            if (!(component is Renderer renderer)) return null;
+
+            Mesh mesh = null;
+            if (renderer is SkinnedMeshRenderer smr)
+                mesh = smr.sharedMesh;
+            else if (renderer is MeshRenderer mr)
+            {
+                var mf = mr.GetComponent<MeshFilter>();
+                if (mf != null) mesh = mf.sharedMesh;
+            }
+            if (mesh == null) return null;
+
+            // Find material slot that uses this material
+            var mats = renderer.sharedMaterials;
+            int matIndex = -1;
+
+            // Direct match (material reference)
+            for (int i = 0; i < mats.Length; i++)
+            {
+                if (mats[i] == material) { matIndex = i; break; }
+            }
+
+            // Fallback: match by _MainTex, but only if unique
+            if (matIndex < 0)
+            {
+                int matchCount = 0;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    if (mats[i] != null && mats[i].HasProperty("_MainTex") && mats[i].mainTexture == texture)
+                    {
+                        if (matIndex < 0) matIndex = i;
+                        matchCount++;
+                    }
+                }
+                // Multiple materials share this texture - can't determine submesh
+                if (matchCount > 1) matIndex = -1;
+            }
+
+            if (matIndex < 0) return null;
+
+            return UVMapGenerator.GenerateUVMask(mesh, texture.width, texture.height, matIndex);
+        }
+
         private void GeneratePreview()
         {
             if (!CanProcess()) return;
@@ -66,6 +111,15 @@ namespace TexColAdjuster
 
                 bool usedGPU = false;
 
+                // Generate UV masks for statistics filtering (Direct tab only)
+                if (_cachedTargetUVMask != null) { UnityEngine.Object.DestroyImmediate(_cachedTargetUVMask, true); _cachedTargetUVMask = null; }
+                if (_cachedReferenceUVMask != null) { UnityEngine.Object.DestroyImmediate(_cachedReferenceUVMask, true); _cachedReferenceUVMask = null; }
+                if (activeTab == 1) // Direct tab
+                {
+                    _cachedTargetUVMask = GenerateUVMaskForComponent(targetComponent, selectedTargetMaterial, targetTexture);
+                    _cachedReferenceUVMask = GenerateUVMaskForComponent(referenceComponent, selectedReferenceMaterial, referenceTexture);
+                }
+
                 // Try GPU path first (LabHistogramMatching)
                 bool canUseGPU = GPUColorAdjuster.IsGPUProcessingAvailable()
                     && adjustmentMode == TexColAdjuster.Runtime.ColorAdjustmentMode.LabHistogramMatching;
@@ -77,7 +131,9 @@ namespace TexColAdjuster
                         referenceTexture,
                         adjustmentIntensity / 100f,
                         preserveLuminance,
-                        adjustmentMode
+                        adjustmentMode,
+                        _cachedTargetUVMask,
+                        _cachedReferenceUVMask
                     );
 
                     if (gpuResult != null)
@@ -186,6 +242,68 @@ namespace TexColAdjuster
                     UnityEngine.Object.DestroyImmediate(readableTarget, true);
                     UnityEngine.Object.DestroyImmediate(readableReference, true);
 
+                    // Cache CPU base texture for fast post-adjustment re-application
+                    if (_cachedCpuBaseTexture != null)
+                    {
+                        UnityEngine.Object.DestroyImmediate(_cachedCpuBaseTexture, true);
+                    }
+                    if (previewTexture != null)
+                    {
+                        _cachedCpuBaseTexture = UnityEngine.Object.Instantiate(previewTexture);
+                    }
+
+                    // Step 3: Apply post-adjustments (brightness, saturation, gamma, midtone shift)
+                    if (previewTexture != null && HasPostAdjustmentsForWindow())
+                    {
+                        Color[] pixels = previewTexture.GetPixels();
+                        for (int i = 0; i < pixels.Length; i++)
+                        {
+                            Color c = pixels[i];
+                            float a = c.a;
+
+                            // Gamma
+                            if (Mathf.Abs(gammaCorrection - 1f) > 0.001f)
+                            {
+                                c.r = Mathf.Clamp01(Mathf.Pow(c.r, gammaCorrection));
+                                c.g = Mathf.Clamp01(Mathf.Pow(c.g, gammaCorrection));
+                                c.b = Mathf.Clamp01(Mathf.Pow(c.b, gammaCorrection));
+                            }
+
+                            // Saturation
+                            if (Mathf.Abs(saturationMultiplier - 1f) > 0.001f)
+                            {
+                                float gray = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+                                c.r = Mathf.Clamp01(gray + (c.r - gray) * saturationMultiplier);
+                                c.g = Mathf.Clamp01(gray + (c.g - gray) * saturationMultiplier);
+                                c.b = Mathf.Clamp01(gray + (c.b - gray) * saturationMultiplier);
+                            }
+
+                            // Brightness offset
+                            if (Mathf.Abs(brightnessOffset) > 0.001f)
+                            {
+                                c.r = Mathf.Clamp01(c.r + brightnessOffset);
+                                c.g = Mathf.Clamp01(c.g + brightnessOffset);
+                                c.b = Mathf.Clamp01(c.b + brightnessOffset);
+                            }
+
+                            // Midtone shift
+                            if (Mathf.Abs(midtoneShift) > 0.001f)
+                            {
+                                float wr = 4f * c.r * (1f - c.r);
+                                float wg = 4f * c.g * (1f - c.g);
+                                float wb = 4f * c.b * (1f - c.b);
+                                c.r = Mathf.Clamp01(c.r + midtoneShift * wr);
+                                c.g = Mathf.Clamp01(c.g + midtoneShift * wg);
+                                c.b = Mathf.Clamp01(c.b + midtoneShift * wb);
+                            }
+
+                            c.a = a;
+                            pixels[i] = c;
+                        }
+                        previewTexture.SetPixels(pixels);
+                        previewTexture.Apply();
+                    }
+
                     previewGenerated = previewTexture != null;
                 }
 
@@ -262,45 +380,126 @@ namespace TexColAdjuster
 
         /// <summary>
         /// キャッシュ済みLABマッチング結果にHSBGだけ再適用する（即時実行）。
+        /// GPU RTキャッシュまたはCPU Texture2Dキャッシュを使用。
         /// </summary>
         private void ReapplyPostAdjustmentsFromCache()
         {
-            if (_cachedLabMatchRT == null) return;
-
-            // Dispose previous scene preview (but not the cached LAB result)
-            if (scenePreviewRenderTexture != null && scenePreviewRenderTexture != _cachedLabMatchRT)
+            // GPU path: cached RT available
+            if (_cachedLabMatchRT != null)
             {
-                if (scenePreviewRenderTexture is IDisposable d) d.Dispose();
-                else { ((RenderTexture)scenePreviewRenderTexture).Release(); UnityEngine.Object.DestroyImmediate(scenePreviewRenderTexture); }
-            }
-
-            Texture finalResult = _cachedLabMatchRT;
-
-            if (HasPostAdjustmentsForWindow() && GPUColorAdjuster.IsHSBGGPUAvailable())
-            {
-                var hsbgResult = GPUColorAdjuster.ApplyHSBGOnGPU(
-                    _cachedLabMatchRT, hueShift, saturationMultiplier, 1f, gammaCorrection, brightnessOffset, contrastMultiplier, midtoneShift);
-                if (hsbgResult != null)
+                // Dispose previous scene preview (but not the cached LAB result)
+                if (scenePreviewRenderTexture != null && scenePreviewRenderTexture != _cachedLabMatchRT)
                 {
-                    finalResult = hsbgResult;
+                    if (scenePreviewRenderTexture is IDisposable d) d.Dispose();
+                    else { ((RenderTexture)scenePreviewRenderTexture).Release(); UnityEngine.Object.DestroyImmediate(scenePreviewRenderTexture); }
                 }
+
+                Texture finalResult = _cachedLabMatchRT;
+
+                if (HasPostAdjustmentsForWindow() && GPUColorAdjuster.IsHSBGGPUAvailable())
+                {
+                    var hsbgResult = GPUColorAdjuster.ApplyHSBGOnGPU(
+                        _cachedLabMatchRT, hueShift, saturationMultiplier, 1f, gammaCorrection, brightnessOffset, contrastMultiplier, midtoneShift);
+                    if (hsbgResult != null)
+                    {
+                        finalResult = hsbgResult;
+                    }
+                }
+
+                scenePreviewRenderTexture = finalResult;
+
+                if (showWindowPreview || activeTab == 0)
+                {
+                    if (previewTexture != null)
+                    {
+                        TextureColorSpaceUtility.UnregisterRuntimeTexture(previewTexture);
+                        UnityEngine.Object.DestroyImmediate(previewTexture, true);
+                    }
+                    previewTexture = ReadbackRenderTexture(finalResult as RenderTexture);
+                }
+
+                RefreshScenePreviewMaterial();
+                UpdateParameterCache();
+                return;
             }
 
-            scenePreviewRenderTexture = finalResult;
-
-            if (showWindowPreview)
+            // CPU path: cached base texture available
+            if (_cachedCpuBaseTexture != null)
             {
                 if (previewTexture != null)
                 {
                     TextureColorSpaceUtility.UnregisterRuntimeTexture(previewTexture);
                     UnityEngine.Object.DestroyImmediate(previewTexture, true);
                 }
-                previewTexture = ReadbackRenderTexture(finalResult as RenderTexture);
-            }
 
-            RefreshScenePreviewMaterial();
-            UpdateParameterCache();
-            Repaint();
+                previewTexture = UnityEngine.Object.Instantiate(_cachedCpuBaseTexture);
+
+                if (HasPostAdjustmentsForWindow())
+                {
+                    Color[] pixels = previewTexture.GetPixels();
+                    for (int i = 0; i < pixels.Length; i++)
+                    {
+                        Color c = pixels[i];
+                        float a = c.a;
+
+                        if (Mathf.Abs(gammaCorrection - 1f) > 0.001f)
+                        {
+                            c.r = Mathf.Clamp01(Mathf.Pow(c.r, gammaCorrection));
+                            c.g = Mathf.Clamp01(Mathf.Pow(c.g, gammaCorrection));
+                            c.b = Mathf.Clamp01(Mathf.Pow(c.b, gammaCorrection));
+                        }
+                        if (Mathf.Abs(saturationMultiplier - 1f) > 0.001f)
+                        {
+                            float gray = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+                            c.r = Mathf.Clamp01(gray + (c.r - gray) * saturationMultiplier);
+                            c.g = Mathf.Clamp01(gray + (c.g - gray) * saturationMultiplier);
+                            c.b = Mathf.Clamp01(gray + (c.b - gray) * saturationMultiplier);
+                        }
+                        if (Mathf.Abs(brightnessOffset) > 0.001f)
+                        {
+                            c.r = Mathf.Clamp01(c.r + brightnessOffset);
+                            c.g = Mathf.Clamp01(c.g + brightnessOffset);
+                            c.b = Mathf.Clamp01(c.b + brightnessOffset);
+                        }
+                        if (Mathf.Abs(midtoneShift) > 0.001f)
+                        {
+                            float wr = 4f * c.r * (1f - c.r);
+                            float wg = 4f * c.g * (1f - c.g);
+                            float wb = 4f * c.b * (1f - c.b);
+                            c.r = Mathf.Clamp01(c.r + midtoneShift * wr);
+                            c.g = Mathf.Clamp01(c.g + midtoneShift * wg);
+                            c.b = Mathf.Clamp01(c.b + midtoneShift * wb);
+                        }
+
+                        c.a = a;
+                        pixels[i] = c;
+                    }
+                    previewTexture.SetPixels(pixels);
+                    previewTexture.Apply();
+                }
+
+                // Update scene preview with CPU result
+                var cpuRT = RenderTexture.GetTemporary(
+                    previewTexture.width, previewTexture.height, 0,
+                    RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                Graphics.Blit(previewTexture, cpuRT);
+
+                if (scenePreviewRenderTexture != null)
+                {
+                    if (scenePreviewRenderTexture is IDisposable d2) d2.Dispose();
+                    else if (scenePreviewRenderTexture is RenderTexture oldRT)
+                    {
+                        oldRT.Release();
+                        UnityEngine.Object.DestroyImmediate(oldRT);
+                    }
+                }
+                scenePreviewRenderTexture = cpuRT;
+
+                RefreshScenePreviewMaterial();
+                UpdateParameterCache();
+                Repaint();
+                return;
+            }
         }
 
 
@@ -314,6 +513,25 @@ namespace TexColAdjuster
                 _cachedLabMatchRT.Release();
                 UnityEngine.Object.DestroyImmediate(_cachedLabMatchRT);
                 _cachedLabMatchRT = null;
+            }
+            if (_cachedCpuBaseTexture != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_cachedCpuBaseTexture, true);
+                _cachedCpuBaseTexture = null;
+            }
+        }
+
+        private void DisposeUVMasks()
+        {
+            if (_cachedTargetUVMask != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_cachedTargetUVMask, true);
+                _cachedTargetUVMask = null;
+            }
+            if (_cachedReferenceUVMask != null)
+            {
+                UnityEngine.Object.DestroyImmediate(_cachedReferenceUVMask, true);
+                _cachedReferenceUVMask = null;
             }
         }
 
@@ -1442,6 +1660,8 @@ namespace TexColAdjuster
             
             CancelDirectTabAutoPreview();
             DisposeReadableTextureCaches();
+            DisposeCachedLabMatchRT();
+            DisposeUVMasks();
             lastAdjustmentIntensity = float.NaN;
             lastColorSelectionRange = -1f;
             lastUseHighPrecisionModeForPreview = !useHighPrecisionMode;

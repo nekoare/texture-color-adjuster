@@ -19,6 +19,7 @@ float Intensity;
 float PreserveLuminance;
 float AlphaThreshold;
 
+
 // Color space conversion functions
 // Input is already linear (Linear RenderTexture, HW handles sRGB decode)
 float3 RGBtoXYZ(float3 rgb)

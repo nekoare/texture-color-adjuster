@@ -157,6 +157,11 @@ namespace TexColAdjuster
 
         // Cached LAB matching result for fast post-adjustment updates
         private RenderTexture _cachedLabMatchRT = null;
+        // Cached CPU base texture (before post-adjustments) for non-GPU modes
+        private Texture2D _cachedCpuBaseTexture = null;
+        // Cached UV masks for statistics filtering
+        private Texture2D _cachedTargetUVMask = null;
+        private Texture2D _cachedReferenceUVMask = null;
 
         // Cached uncompressed textures to avoid block noise from compressed formats
         private Texture2D _cachedUncompressedTarget = null;
