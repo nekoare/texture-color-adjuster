@@ -24,6 +24,7 @@ namespace TexColAdjuster.Editor
         private SerializedProperty saturationProp;
         private SerializedProperty brightnessProp;
         private SerializedProperty gammaProp;
+        private SerializedProperty midtoneShiftProp;
         private bool previewSettingsFoldout;
         private bool targetSettingsFoldout;
 
@@ -45,6 +46,7 @@ namespace TexColAdjuster.Editor
             saturationProp = serializedObject.FindProperty("saturation");
             brightnessProp = serializedObject.FindProperty("brightness");
             gammaProp = serializedObject.FindProperty("gamma");
+            midtoneShiftProp = serializedObject.FindProperty("midtoneShift");
             previewSettingsFoldout = false;
             targetSettingsFoldout = false;
         }
@@ -157,6 +159,7 @@ namespace TexColAdjuster.Editor
             EditorGUILayout.PropertyField(intensityProp, new GUIContent(LocalizationManager.Get("component_intensity")));
             EditorGUILayout.PropertyField(preserveLuminanceProp, new GUIContent(LocalizationManager.Get("component_preserve_luminance")));
             GUILayout.Space(5);
+            EditorGUILayout.PropertyField(midtoneShiftProp, new GUIContent("色合いシフト", "中間トーンを重点的にシフトします"));
             EditorGUILayout.PropertyField(hueShiftProp, GetLocalizedContent("component_post_adjustment_hue", "component_post_adjustment_hue_tooltip"));
             EditorGUILayout.PropertyField(saturationProp, GetLocalizedContent("component_post_adjustment_saturation", "component_post_adjustment_saturation_tooltip"));
             EditorGUILayout.PropertyField(brightnessProp, GetLocalizedContent("component_post_adjustment_brightness", "component_post_adjustment_brightness_tooltip"));
@@ -204,17 +207,6 @@ namespace TexColAdjuster.Editor
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
-
-            // Open Advanced Editor Button
-            if (GUILayout.Button(LocalizationManager.Get("component_open_advanced_editor"), GUILayout.Height(30)))
-            {
-                // This will be implemented when EditorWindow integration is complete
-                EditorUtility.DisplayDialog(
-                    LocalizationManager.Get("component_advanced_editor_coming_soon"),
-                    LocalizationManager.Get("component_advanced_editor_message"),
-                    "OK"
-                );
-            }
 
             serializedObject.ApplyModifiedProperties();
         }

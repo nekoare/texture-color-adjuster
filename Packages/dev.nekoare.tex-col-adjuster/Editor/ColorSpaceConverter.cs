@@ -14,52 +14,44 @@ namespace TexColAdjuster.Editor
             return XYZtoLAB(xyz);
         }
         
-        public static Color LABtoRGB(Vector3 lab)
+        public static Color LABtoRGB(Vector3 lab, float alpha = 1.0f)
         {
             // First convert LAB to XYZ
             Vector3 xyz = LABtoXYZ(lab);
-            
+
             // Then convert XYZ to RGB
-            return XYZtoRGB(xyz);
+            Color rgb = XYZtoRGB(xyz);
+            rgb.a = alpha;
+            return rgb;
         }
         
         public static Vector3 RGBtoXYZ(Color rgb)
         {
-            // Normalize RGB values
+            // Input is already in linear space (from GetPixelsSafe or Color.linear)
             float r = rgb.r;
             float g = rgb.g;
             float b = rgb.b;
-            
-            // Apply gamma correction
-            r = (r > 0.04045f) ? Mathf.Pow((r + 0.055f) / 1.055f, 2.4f) : r / 12.92f;
-            g = (g > 0.04045f) ? Mathf.Pow((g + 0.055f) / 1.055f, 2.4f) : g / 12.92f;
-            b = (b > 0.04045f) ? Mathf.Pow((b + 0.055f) / 1.055f, 2.4f) : b / 12.92f;
-            
-            // Convert to XYZ using sRGB matrix
+
+            // Convert to XYZ using sRGB matrix (no gamma decode — input is linear)
             float x = r * 0.4124564f + g * 0.3575761f + b * 0.1804375f;
             float y = r * 0.2126729f + g * 0.7151522f + b * 0.0721750f;
             float z = r * 0.0193339f + g * 0.1191920f + b * 0.9503041f;
-            
+
             return new Vector3(x, y, z);
         }
         
         public static Color XYZtoRGB(Vector3 xyz)
         {
-            // Convert XYZ to RGB using sRGB matrix
+            // Convert XYZ to linear RGB using sRGB matrix (no gamma encode — output stays linear)
             float r = xyz.x * 3.2404542f + xyz.y * -1.5371385f + xyz.z * -0.4985314f;
             float g = xyz.x * -0.9692660f + xyz.y * 1.8760108f + xyz.z * 0.0415560f;
             float b = xyz.x * 0.0556434f + xyz.y * -0.2040259f + xyz.z * 1.0572252f;
-            
-            // Apply inverse gamma correction
-            r = (r > 0.0031308f) ? 1.055f * Mathf.Pow(r, 1.0f / 2.4f) - 0.055f : 12.92f * r;
-            g = (g > 0.0031308f) ? 1.055f * Mathf.Pow(g, 1.0f / 2.4f) - 0.055f : 12.92f * g;
-            b = (b > 0.0031308f) ? 1.055f * Mathf.Pow(b, 1.0f / 2.4f) - 0.055f : 12.92f * b;
-            
+
             // Clamp values
             r = Mathf.Clamp01(r);
             g = Mathf.Clamp01(g);
             b = Mathf.Clamp01(b);
-            
+
             return new Color(r, g, b, 1.0f);
         }
         
@@ -131,7 +123,7 @@ namespace TexColAdjuster.Editor
             float s = 0.0f;
             float v = max;
             
-            if (delta != 0.0f)
+            if (delta != 0.0f && max > 0.0f)
             {
                 s = delta / max;
                 
@@ -150,19 +142,20 @@ namespace TexColAdjuster.Editor
             return new Vector3(h, s, v);
         }
         
-        public static Color HSVtoRGB(Vector3 hsv)
+        public static Color HSVtoRGB(Vector3 hsv, float alpha = 1.0f)
         {
-            float h = hsv.x;
+            float h = hsv.x % 360.0f;
+            if (h < 0.0f) h += 360.0f;
             float s = hsv.y;
             float v = hsv.z;
-            
+
             float c = v * s;
             float x = c * (1.0f - Mathf.Abs(((h / 60.0f) % 2.0f) - 1.0f));
             float m = v - c;
-            
+
             float r = 0.0f, g = 0.0f, b = 0.0f;
-            
-            if (h >= 0.0f && h < 60.0f)
+
+            if (h < 60.0f)
             {
                 r = c; g = x; b = 0.0f;
             }
@@ -186,8 +179,8 @@ namespace TexColAdjuster.Editor
             {
                 r = c; g = 0.0f; b = x;
             }
-            
-            return new Color(r + m, g + m, b + m, 1.0f);
+
+            return new Color(r + m, g + m, b + m, alpha);
         }
         
         public static float GetLuminance(Color color)
@@ -197,31 +190,25 @@ namespace TexColAdjuster.Editor
         
         public static Color PreserveLuminance(Color originalColor, Color newColor)
         {
-            float originalLuminance = GetLuminance(originalColor);
-            float newLuminance = GetLuminance(newColor);
-            
-            if (newLuminance == 0.0f)
-                return originalColor;
-            
-            float ratio = originalLuminance / newLuminance;
-            
-            return new Color(
-                Mathf.Clamp01(newColor.r * ratio),
-                Mathf.Clamp01(newColor.g * ratio),
-                Mathf.Clamp01(newColor.b * ratio),
-                originalColor.a
-            );
+            // Use LAB space: replace L of newColor with L of originalColor
+            // This avoids hue shifts caused by RGB ratio scaling with Clamp01 saturation
+            Vector3 originalLab = RGBtoLAB(originalColor);
+            Vector3 newLab = RGBtoLAB(newColor);
+
+            newLab.x = originalLab.x; // Preserve original lightness
+
+            return LABtoRGB(newLab, originalColor.a);
         }
         
         public static Color BlendColors(Color color1, Color color2, float blend)
         {
             blend = Mathf.Clamp01(blend);
-            
+
             return new Color(
                 Mathf.Lerp(color1.r, color2.r, blend),
                 Mathf.Lerp(color1.g, color2.g, blend),
                 Mathf.Lerp(color1.b, color2.b, blend),
-                Mathf.Lerp(color1.a, color2.a, blend)
+                color1.a // Preserve original alpha (don't blend transparency)
             );
         }
         
@@ -266,7 +253,7 @@ namespace TexColAdjuster.Editor
             hsv.z *= brightness;
             hsv.z = Mathf.Clamp01(hsv.z);
 
-            Color adjustedColor = HSVtoRGB(hsv);
+            Color adjustedColor = HSVtoRGB(hsv, color.a);
 
             // Use direct exponentiation so that gamma < 1 makes the image lighter and gamma > 1 makes it darker.
             if (gamma <= 0f) gamma = 1f;
@@ -293,7 +280,7 @@ namespace TexColAdjuster.Editor
             hsv.y = Mathf.Clamp01(hsv.y * saturation);
             hsv.z = Mathf.Clamp01(hsv.z * brightness);
 
-            Color adjusted = HSVtoRGB(hsv);
+            Color adjusted = HSVtoRGB(hsv, color.a);
 
             // Apply gamma correction: gamma < 1 => lighter, gamma > 1 => darker
             if (gamma <= 0f) gamma = 1f;
@@ -301,7 +288,6 @@ namespace TexColAdjuster.Editor
             adjusted.g = Mathf.Clamp01(Mathf.Pow(adjusted.g, gamma));
             adjusted.b = Mathf.Clamp01(Mathf.Pow(adjusted.b, gamma));
 
-            adjusted.a = color.a;
             return adjusted;
         }
 

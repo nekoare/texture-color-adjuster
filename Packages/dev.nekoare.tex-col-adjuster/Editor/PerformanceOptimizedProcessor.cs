@@ -79,7 +79,7 @@ namespace TexColAdjuster
             if (sourceColors == null) return null;
 
             // Pre-calculate transformation values for performance
-            ColorPixel colorDifference = fromColor.GetDifference(toColor);
+            Vector3 colorDifference = fromColor.GetDifferenceFloat(toColor);
             TransformationCache transformCache = new TransformationCache(fromColor, colorDifference, config);
             
             // Process pixels with optimized loop
@@ -413,11 +413,11 @@ namespace TexColAdjuster
     public struct TransformationCache
     {
         public ColorPixel fromColor;
-        public ColorPixel colorDifference;
+        public Vector3 colorDifference;
         public ColorTransformConfig config;
         public bool hasAdjustments;
-        
-        public TransformationCache(ColorPixel fromColor, ColorPixel colorDifference, ColorTransformConfig config)
+
+        public TransformationCache(ColorPixel fromColor, Vector3 colorDifference, ColorTransformConfig config)
         {
             this.fromColor = fromColor;
             this.colorDifference = colorDifference;

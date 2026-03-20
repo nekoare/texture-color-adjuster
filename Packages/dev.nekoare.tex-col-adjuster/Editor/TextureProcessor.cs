@@ -405,7 +405,8 @@ namespace TexColAdjuster
             try
             {
                 var pixels = texture.GetPixels();
-                TextureColorSpaceUtility.ConvertPixelsToSRGB(texture, pixels);
+                // Linear color space: GetPixels() already returns linear values.
+                // No .gamma conversion — processing stays in linear space throughout.
                 if (pixels == null || pixels.Length == 0)
                 {
                     Debug.LogError($"GetPixelsSafe failed: '{texture.name}' returned null or empty pixel array (format: {texture.format}, readable: {texture.isReadable})");
@@ -428,9 +429,9 @@ namespace TexColAdjuster
                 
             try
             {
-                Debug.Log($"Attempting to set pixels on texture with format: {texture.format}, size: {texture.width}x{texture.height}");
-                var workingPixels = TextureColorSpaceUtility.ConvertPixelsToTextureSpace(texture, pixels);
-                texture.SetPixels(workingPixels);
+                // Linear color space: pixels are already in linear space.
+                // No .linear conversion — write directly.
+                texture.SetPixels(pixels);
                 texture.Apply();
                 return true;
             }

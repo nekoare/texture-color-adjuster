@@ -140,11 +140,12 @@ namespace TexColAdjuster.Editor
             importer.textureType = settings.textureType;
             importer.isReadable = settings.isReadable;
             importer.mipmapEnabled = settings.generateMipmaps;
+            importer.streamingMipmaps = settings.generateMipmaps; // VRChat requires streaming mipmaps
             importer.alphaSource = settings.alphaSource;
             importer.alphaIsTransparency = settings.alphaIsTransparency;
             importer.maxTextureSize = settings.maxTextureSize;
             importer.textureCompression = settings.compression;
-            
+
             AssetDatabase.ImportAsset(path);
         }
         
@@ -236,7 +237,7 @@ namespace TexColAdjuster.Editor
         public bool isReadable = true;
         public bool generateMipmaps = true;
         public TextureImporterAlphaSource alphaSource = TextureImporterAlphaSource.FromInput;
-        public bool alphaIsTransparency = false;
+        public bool alphaIsTransparency = true;
         public int maxTextureSize = 2048;
         public TextureImporterCompression compression = TextureImporterCompression.Uncompressed;
     }

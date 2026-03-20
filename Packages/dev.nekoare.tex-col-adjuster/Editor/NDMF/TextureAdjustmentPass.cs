@@ -127,19 +127,25 @@ namespace TexColAdjuster.Editor.NDMF
             Texture2D readableTexture = null;
             Texture2D readableReference = null;
             Texture2D result = null;
+            TextureImportBackup targetBackup = null;
+            TextureImportBackup refBackup = null;
 
             try
             {
-                // Create readable copy without modifying original texture import settings
-                readableTexture = TextureProcessor.MakeReadableCopy(originalTexture);
+                // Temporarily make textures uncompressed to avoid block noise
+                var uncompressedTarget = TextureProcessor.MakeTextureReadable(originalTexture, out targetBackup);
+                var uncompressedRef = TextureProcessor.MakeTextureReadable(component.referenceTexture, out refBackup);
+
+                readableTexture = TextureProcessor.MakeReadableCopy(uncompressedTarget ?? originalTexture);
                 if (readableTexture == null)
                 {
+                    targetBackup?.RestoreSettings();
+                    refBackup?.RestoreSettings();
                     Debug.LogError($"[TexColorAdjuster] Failed to create readable copy of texture: {originalTexture?.name ?? "null"}");
                     return null;
                 }
 
-                // Use non-destructive copy for reference texture to avoid modifying import settings
-                readableReference = TextureProcessor.MakeReadableCopy(component.referenceTexture);
+                readableReference = TextureProcessor.MakeReadableCopy(uncompressedRef ?? component.referenceTexture);
                 if (readableReference == null)
                 {
                     Debug.LogError($"[TexColorAdjuster] Failed to create readable copy of reference texture: {component.referenceTexture?.name ?? "null"}");
@@ -148,7 +154,6 @@ namespace TexColAdjuster.Editor.NDMF
 
                 if (component.useHighPrecisionMode)
                 {
-                    // High precision mode processing
                     var highPrecisionConfig = new HighPrecisionProcessor.HighPrecisionConfig
                     {
                         referenceGameObject = component.highPrecisionReferenceObject,
@@ -170,29 +175,6 @@ namespace TexColAdjuster.Editor.NDMF
                             component.preserveLuminance,
                             component.adjustmentMode
                         );
-                        // Apply post-adjustment parameters (hue, saturation, brightness, gamma)
-                        if (result != null)
-                        {
-                            try
-                            {
-                                Color[] pixels = TextureUtils.GetPixelsSafe(result);
-                                if (pixels != null)
-                                {
-                                    var adjusted = TexColAdjuster.Editor.ColorSpaceConverter.ApplyHSBGToArray(
-                                        pixels,
-                                        component.hueShift,
-                                        component.saturation,
-                                        component.brightness,
-                                        component.gamma
-                                    );
-                                    TextureUtils.SetPixelsSafe(result, adjusted);
-                                }
-                            }
-                            catch (System.Exception ex)
-                            {
-                                Debug.LogError($"[TexColorAdjuster] Failed to apply post-adjustments: {ex.Message}");
-                            }
-                        }
                     }
                     else
                     {
@@ -200,27 +182,15 @@ namespace TexColAdjuster.Editor.NDMF
                             readableTexture,
                             readableReference,
                             highPrecisionConfig,
-                            component.intensity * 100f, // Convert back to 0-100 range for processor
+                            component.intensity * 100f,
                             component.preserveLuminance,
                             component.adjustmentMode
                         );
                     }
                 }
-                else if (component.useDualColorSelection)
-                {
-                    result = ColorAdjuster.AdjustColorsWithDualSelection(
-                        readableTexture,
-                        readableReference,
-                        component.targetColor,
-                        component.referenceColor,
-                        component.intensity,
-                        component.preserveLuminance,
-                        component.adjustmentMode,
-                        component.selectionRange
-                    );
-                }
                 else
                 {
+                    // Step 1: LAB histogram matching (全体の色合わせ)
                     result = ColorAdjuster.AdjustColors(
                         readableTexture,
                         readableReference,
@@ -228,6 +198,25 @@ namespace TexColAdjuster.Editor.NDMF
                         component.preserveLuminance,
                         component.adjustmentMode
                     );
+
+                    // Step 2: DualSelection refinement (選択色域の追加補正)
+                    if (component.useDualColorSelection && result != null)
+                    {
+                        var refined = ColorAdjuster.ApplyDualSelectionRefinement(
+                            result, component.targetColor, component.referenceColor, component.selectionRange);
+                        if (refined != null)
+                        {
+                            TextureColorSpaceUtility.UnregisterRuntimeTexture(result);
+                            Object.DestroyImmediate(result);
+                            result = refined;
+                        }
+                    }
+                }
+
+                // Apply HSBG post-adjustments for all modes
+                if (result != null)
+                {
+                    ApplyPostAdjustments(component, result);
                 }
             }
             catch (System.Exception ex)
@@ -247,15 +236,88 @@ namespace TexColAdjuster.Editor.NDMF
                 {
                     UnityEngine.Object.DestroyImmediate(readableReference);
                 }
+
+                // Restore original import settings
+                targetBackup?.RestoreSettings();
+                refBackup?.RestoreSettings();
             }
 
             if (result != null)
             {
+                // Enable MipStreaming BEFORE compression (GetPixels requires uncompressed format for Reinitialize)
+                EnableMipStreaming(result);
+
+                // Re-compress to match original format to minimize block artifacts
+                CompressToMatch(result, originalTexture.format);
+
+                // Re-apply MipStreaming after compression (CompressTexture may reset it)
+                SetMipStreamingFlag(result);
+
                 var textureAssetName = $"{originalTexture.name}_TexColAdjusted_{component.gameObject.name}";
                 RegisterBakedAsset(context, result, textureAssetName);
             }
 
             return result;
+        }
+
+        private static void CompressToMatch(Texture2D texture, TextureFormat sourceFormat)
+        {
+            TextureFormat? compressedFormat = sourceFormat switch
+            {
+                TextureFormat.DXT1 or TextureFormat.DXT1Crunched => TextureFormat.DXT1,
+                TextureFormat.DXT5 or TextureFormat.DXT5Crunched => TextureFormat.DXT5,
+                TextureFormat.BC5 => TextureFormat.BC5,
+                TextureFormat.BC7 => TextureFormat.BC7,
+                TextureFormat.BC4 => TextureFormat.BC4,
+                TextureFormat.BC6H => TextureFormat.BC6H,
+                _ => null
+            };
+
+            if (compressedFormat.HasValue)
+            {
+                EditorUtility.CompressTexture(texture, compressedFormat.Value, UnityEditor.TextureCompressionQuality.Normal);
+            }
+        }
+
+        private static void EnableMipStreaming(Texture2D texture)
+        {
+            if (texture == null) return;
+
+            // MipMapが無いテクスチャにStreamingMipmapsを設定しても効かないため、
+            // MipMap付きで再生成する
+            if (texture.mipmapCount <= 1)
+            {
+                var pixels = texture.GetPixels();
+                bool linear = !TextureColorSpaceUtility.IsTextureSRGB(texture);
+                texture.Reinitialize(texture.width, texture.height, texture.format, true);
+                texture.SetPixels(pixels);
+                texture.Apply(true); // updateMipmaps = true
+            }
+
+            using var serializedTexture = new UnityEditor.SerializedObject(texture);
+            var streamingMipmapsProperty = serializedTexture.FindProperty("m_StreamingMipmaps");
+            var streamingMipmapsPriorityProperty = serializedTexture.FindProperty("m_StreamingMipmapsPriority");
+
+            if (streamingMipmapsProperty != null)
+                streamingMipmapsProperty.boolValue = true;
+            if (streamingMipmapsPriorityProperty != null)
+                streamingMipmapsPriorityProperty.intValue = 0;
+
+            serializedTexture.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>
+        /// 圧縮後にMipStreamingフラグだけを再設定する（Reinitializeなし）
+        /// </summary>
+        private static void SetMipStreamingFlag(Texture2D texture)
+        {
+            if (texture == null) return;
+
+            using var serializedTexture = new UnityEditor.SerializedObject(texture);
+            var streamingMipmapsProperty = serializedTexture.FindProperty("m_StreamingMipmaps");
+            if (streamingMipmapsProperty != null)
+                streamingMipmapsProperty.boolValue = true;
+            serializedTexture.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static Material[] GetOrCloneMaterials(Renderer renderer, Dictionary<Renderer, Material[]> cache)
@@ -274,6 +336,54 @@ namespace TexColAdjuster.Editor.NDMF
             var cloned = materials != null ? materials.ToArray() : Array.Empty<Material>();
             cache[renderer] = cloned;
             return cloned;
+        }
+
+        private static void ApplyPostAdjustments(TextureColorAdjustmentComponent component, Texture2D texture)
+        {
+            const float epsilon = 0.001f;
+            bool hasAdjustments = Mathf.Abs(component.hueShift) > epsilon
+                || Mathf.Abs(component.saturation - 1f) > epsilon
+                || Mathf.Abs(component.brightness) > epsilon
+                || Mathf.Abs(component.gamma - 1f) > epsilon
+                || Mathf.Abs(component.midtoneShift) > epsilon;
+
+            if (!hasAdjustments)
+                return;
+
+            Color[] pixels = TextureUtils.GetPixelsSafe(texture);
+            if (pixels == null)
+                return;
+
+            var adjusted = ColorSpaceConverter.ApplyHSBGToArray(
+                pixels, component.hueShift, component.saturation, 1f, component.gamma);
+
+            // Apply brightness offset (additive)
+            if (Mathf.Abs(component.brightness) > epsilon)
+            {
+                for (int i = 0; i < adjusted.Length; i++)
+                {
+                    adjusted[i].r = Mathf.Clamp01(adjusted[i].r + component.brightness);
+                    adjusted[i].g = Mathf.Clamp01(adjusted[i].g + component.brightness);
+                    adjusted[i].b = Mathf.Clamp01(adjusted[i].b + component.brightness);
+                }
+            }
+
+            // Apply midtone shift
+            if (Mathf.Abs(component.midtoneShift) > epsilon)
+            {
+                for (int i = 0; i < adjusted.Length; i++)
+                {
+                    float shift = component.midtoneShift;
+                    float wr = 4f * adjusted[i].r * (1f - adjusted[i].r);
+                    float wg = 4f * adjusted[i].g * (1f - adjusted[i].g);
+                    float wb = 4f * adjusted[i].b * (1f - adjusted[i].b);
+                    adjusted[i].r = Mathf.Clamp01(adjusted[i].r + shift * wr);
+                    adjusted[i].g = Mathf.Clamp01(adjusted[i].g + shift * wg);
+                    adjusted[i].b = Mathf.Clamp01(adjusted[i].b + shift * wb);
+                }
+            }
+
+            TextureUtils.SetPixelsSafe(texture, adjusted);
         }
 
         private static void ReplaceTexturesInMaterial(Material material, Dictionary<Texture2D, Texture2D> replacementMap)

@@ -18,7 +18,7 @@ namespace TexColorAdjusterNamespace
             影 = 2,
             発光テクスチャ = 4,
             発光テクスチャ2nd = 8,
-            sRimShade = 16,
+            リムシェード = 16,
             逆光ライト = 32,
             反射 = 64,
             マットキャップ = 128,
@@ -101,7 +101,7 @@ namespace TexColorAdjusterNamespace
                 count += TransferProperties(sourceMaterial, targetMaterial, MaterialUnifyToolProperties.LightingProperties);
                 
             if ((selectedCategories & TransferCategories.影) != 0)
-                count += TransferProperties(sourceMaterial, targetMaterial, MaterialUnifyToolProperties.ShadowProperties);
+                count += TransferProperties(sourceMaterial, targetMaterial, MaterialUnifyToolProperties.ShadowProperties, skipTextures: true);
                 
             if ((selectedCategories & TransferCategories.発光テクスチャ) != 0)
                 count += TransferProperties(sourceMaterial, targetMaterial, MaterialUnifyToolProperties.EmissionProperties);
@@ -109,7 +109,7 @@ namespace TexColorAdjusterNamespace
             if ((selectedCategories & TransferCategories.発光テクスチャ2nd) != 0)
                 count += TransferProperties(sourceMaterial, targetMaterial, MaterialUnifyToolProperties.Emission2ndProperties);
                 
-            if ((selectedCategories & TransferCategories.sRimShade) != 0)
+            if ((selectedCategories & TransferCategories.リムシェード) != 0)
                 count += TransferProperties(sourceMaterial, targetMaterial, MaterialUnifyToolProperties.sRimShadeProperties);
                 
             if ((selectedCategories & TransferCategories.逆光ライト) != 0)
@@ -136,10 +136,10 @@ namespace TexColorAdjusterNamespace
             return count;
         }
 
-        private static int TransferProperties(Material sourceMaterial, Material targetMaterial, string[] propertyNames)
+        private static int TransferProperties(Material sourceMaterial, Material targetMaterial, string[] propertyNames, bool skipTextures = false)
         {
             int count = 0;
-            
+
             foreach (string propertyName in propertyNames)
             {
                 if (sourceMaterial.HasProperty(propertyName) && targetMaterial.HasProperty(propertyName))
@@ -162,14 +162,17 @@ namespace TexColorAdjusterNamespace
                                 count++;
                                 break;
                             case MaterialProperty.PropType.Texture:
-                                targetMaterial.SetTexture(propertyName, sourceMaterial.GetTexture(propertyName));
-                                count++;
+                                if (!skipTextures)
+                                {
+                                    targetMaterial.SetTexture(propertyName, sourceMaterial.GetTexture(propertyName));
+                                    count++;
+                                }
                                 break;
                         }
                     }
                 }
             }
-            
+
             return count;
         }
 

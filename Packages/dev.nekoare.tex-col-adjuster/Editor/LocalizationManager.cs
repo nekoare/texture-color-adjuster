@@ -286,6 +286,26 @@ namespace TexColAdjuster.Editor
             AddLocalization("component_open_advanced_editor", "詳細エディタを開く", "Open Advanced Editor Window");
             AddLocalization("component_advanced_editor_coming_soon", "詳細エディタ", "Advanced Editor");
             AddLocalization("component_advanced_editor_message", "エディタウィンドウ統合は近日公開予定です。", "EditorWindow integration coming soon.");
+
+            // New UI
+            AddLocalization("new_ui_toggle", "新UI", "New UI");
+            AddLocalization("part_target", "🎯 色を変えたいパーツ", "🎯 Part to Recolor");
+            AddLocalization("part_reference", "🎨 参照したい色のパーツ", "🎨 Color Reference Part");
+            AddLocalization("renderer_not_found_short", "Rendererが見つかりません", "No Renderer found");
+            AddLocalization("adjustment_section", "調整", "Adjustment");
+            AddLocalization("material_transfer_toggle", "見え方も転送(マテリアル設定の転送)", "Transfer Appearance (Material Settings)");
+            AddLocalization("material_transfer_help", "💡 色調整と同時にliltoonのマテリアル設定（描画効果等）も転送されます。", "💡 Transfers liltoon material settings (drawing effects, etc.) along with color adjustment.");
+            AddLocalization("transfer_direction", "転送方向:", "Transfer Direction:");
+            AddLocalization("transfer_source", "転送元:", "Source:");
+            AddLocalization("transfer_target", "転送先:", "Target:");
+            AddLocalization("not_selected", "未選択", "Not Selected");
+            AddLocalization("liltoon_both_required", "⚠ 両方のマテリアルがliltoonである必要があります。", "⚠ Both materials must be liltoon.");
+            AddLocalization("advanced_settings", "詳細設定", "Advanced Settings");
+            AddLocalization("ndmf_settings", "非破壊処理", "Non-Destructive Processing");
+            AddLocalization("window_preview_toggle", "ウィンドウ内プレビュー", "In-Window Preview");
+            AddLocalization("mesh_info_toggle", "メッシュ情報を表示", "Show Mesh Info");
+            AddLocalization("inactive_objects_toggle", "非アクティブも対象", "Include Inactive");
+            AddLocalization("color_adjustment_controls", "Color Adjustment Controls", "Color Adjustment Controls");
         }
         
         private static void AddLocalization(string key, string japanese, string english)

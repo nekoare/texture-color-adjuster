@@ -19,7 +19,7 @@ namespace TexColAdjuster.Editor.Models
         /// <param name="height"></param>
         /// <param name="readWrite"></param>
         public ExtendedRenderTexture(int width, int height, RenderTextureReadWrite readWrite = RenderTextureReadWrite.sRGB)
-            : base(width, height, 0, RenderTextureFormat.ARGB32, readWrite)
+            : base(width, height, 0, RenderTextureFormat.ARGBHalf, readWrite)
         {
             enableRandomWrite = true;
             wrapMode = TextureWrapMode.Clamp;

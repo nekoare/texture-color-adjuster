@@ -44,9 +44,8 @@ namespace TexColAdjuster.Editor
                     break;
             }
             
-            // Preserve transparency - skip processing for transparent pixels
-            adjustedPixels = TransparencyUtils.PreserveTransparency(targetPixels, adjustedPixels);
-            
+            // Transparency is now handled within each adjustment method (no separate pass needed)
+
             var result = TextureColorSpaceUtility.CreateRuntimeTextureLike(targetTexture);
             if (TextureUtils.SetPixelsSafe(result, adjustedPixels))
             {
@@ -63,13 +62,17 @@ namespace TexColAdjuster.Editor
         {
             if (targetTexture == null || referenceTexture == null)
                 return null;
-            
+
+            // Convert UI colors (gamma/sRGB space) to linear for LAB processing
+            targetColor = targetColor.linear;
+            referenceColor = referenceColor.linear;
+
             Color[] targetPixels = TextureUtils.GetPixelsSafe(targetTexture);
             Color[] referencePixels = TextureUtils.GetPixelsSafe(referenceTexture);
-            
+
             if (targetPixels == null || referencePixels == null)
                 return null;
-            
+
             // Direct color matching approach for precise local color alignment
             // This prioritizes making the selected colors match exactly
             Color[] adjustedPixels = DirectColorMatching(targetPixels, targetColor, referenceColor, intensity, preserveLuminance, selectionRange);
@@ -85,9 +88,38 @@ namespace TexColAdjuster.Editor
             return null;
         }
         
+        /// <summary>
+        /// LABマッチング済みテクスチャに対して、選択した2色の周辺色域をさらに参照色方向に補正する。
+        /// 全体の色合わせはLABマッチングで済んでいる前提で、局所的な色の一致度を高める。
+        /// </summary>
+        public static Texture2D ApplyDualSelectionRefinement(Texture2D labMatchedTexture,
+            Color targetColor, Color referenceColor, float selectionRange = 0.3f)
+        {
+            if (labMatchedTexture == null) return null;
+
+            Color[] pixels = TextureUtils.GetPixelsSafe(labMatchedTexture);
+            if (pixels == null) return null;
+
+            // Convert UI colors to linear for LAB processing
+            Color linearTarget = targetColor.linear;
+            Color linearRef = referenceColor.linear;
+
+            Color[] refined = DirectColorMatching(pixels, linearTarget, linearRef, 1f, false, selectionRange);
+
+            var result = TextureColorSpaceUtility.CreateRuntimeTextureLike(labMatchedTexture);
+            if (TextureUtils.SetPixelsSafe(result, refined))
+            {
+                return result;
+            }
+
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(result);
+            UnityEngine.Object.DestroyImmediate(result);
+            return null;
+        }
+
         // Direct color matching for precise local color alignment
         // This approach transforms the entire texture based on color space distance while preserving texture variation
-        private static Color[] DirectColorMatching(Color[] targetPixels, Color targetColor, Color referenceColor, 
+        private static Color[] DirectColorMatching(Color[] targetPixels, Color targetColor, Color referenceColor,
             float intensity, bool preserveLuminance, float selectionRange)
         {
             Color[] adjustedPixels = new Color[targetPixels.Length];
@@ -127,9 +159,9 @@ namespace TexColAdjuster.Editor
                     adjustedLab.x = Mathf.Lerp(adjustedLab.x, originalLab.x, 0.7f);
                 }
                 
-                // Convert back to RGB
-                Color adjustedColor = ColorSpaceConverter.LABtoRGB(adjustedLab);
-                
+                // Convert back to RGB (preserve original alpha)
+                Color adjustedColor = ColorSpaceConverter.LABtoRGB(adjustedLab, originalPixel.a);
+
                 // Final blending to ensure smooth transitions
                 adjustedPixels[i] = Color.Lerp(originalPixel, adjustedColor, transformationStrength);
             }
@@ -231,9 +263,9 @@ namespace TexColAdjuster.Editor
                         targetLab.z + relativeDifference.z
                     );
                     
-                    // Convert back to RGB
-                    Color adjustedColor = ColorSpaceConverter.LABtoRGB(adjustedLab);
-                    
+                    // Convert back to RGB (preserve original alpha)
+                    Color adjustedColor = ColorSpaceConverter.LABtoRGB(adjustedLab, originalPixel.a);
+
                     // Blend based on similarity for smooth transitions
                     float blendFactor = similarity;
                     virtualPixels[i] = Color.Lerp(originalPixel, adjustedColor, blendFactor);
@@ -253,7 +285,10 @@ namespace TexColAdjuster.Editor
         {
             if (targetTexture == null || referenceTexture == null)
                 return null;
-            
+
+            // Convert UI color (gamma/sRGB space) to linear for LAB processing
+            targetMainColor = targetMainColor.linear;
+
             Color[] targetPixels = TextureUtils.GetPixelsSafe(targetTexture);
             Color[] referencePixels = TextureUtils.GetPixelsSafe(referenceTexture);
             
@@ -341,104 +376,132 @@ namespace TexColAdjuster.Editor
             return similarity;
         }
         
-        private static Color[] LabHistogramMatching(Color[] targetPixels, Color[] referencePixels, 
+        private static Color[] LabHistogramMatching(Color[] targetPixels, Color[] referencePixels,
             float intensity, bool preserveLuminance)
         {
-            // Filter out transparent pixels for color analysis
-            var opaqueTargetPixels = TransparencyUtils.FilterOpaquePixels(targetPixels);
-            var opaqueReferencePixels = TransparencyUtils.FilterOpaquePixels(referencePixels);
-            
-            // Convert to LAB color space (only opaque pixels)
-            var targetLab = targetPixels.Select(c => ColorSpaceConverter.RGBtoLAB(c)).ToArray();
-            var referenceLab = referencePixels.Select(c => ColorSpaceConverter.RGBtoLAB(c)).ToArray();
-            var opaqueTargetLab = opaqueTargetPixels.Select(c => ColorSpaceConverter.RGBtoLAB(c)).ToArray();
-            var opaqueReferenceLab = opaqueReferencePixels.Select(c => ColorSpaceConverter.RGBtoLAB(c)).ToArray();
-            
-            // Calculate statistics for more accurate color matching (using only opaque pixels)
-            var targetStats = CalculateLabStatistics(opaqueTargetLab);
-            var referenceStats = CalculateLabStatistics(opaqueReferenceLab);
-            
-            // Debug output for LAB statistics
-            Debug.Log($"LAB Statistics - Target L: {targetStats.lMean:F2}, Reference L: {referenceStats.lMean:F2}");
-            
-            // Adjust colors with improved histogram matching
+            // Calculate LAB statistics in a single pass (opaque pixels only, no LINQ allocation)
+            var targetStats = CalculateLabStatisticsFromPixels(targetPixels);
+            var referenceStats = CalculateLabStatisticsFromPixels(referencePixels);
+
             var adjustedPixels = new Color[targetPixels.Length];
-            
+
             for (int i = 0; i < targetPixels.Length; i++)
             {
-                // Skip processing for transparent pixels - they will be handled by PreserveTransparency
-                if (TransparencyUtils.IsTransparent(targetPixels[i]))
+                Color pixel = targetPixels[i];
+
+                // Skip transparent pixels
+                if (pixel.a < ALPHA_THRESHOLD)
                 {
-                    adjustedPixels[i] = targetPixels[i];
+                    adjustedPixels[i] = pixel;
                     continue;
                 }
-                
-                Vector3 originalLab = targetLab[i];
-                
-                // Pure histogram matching without additional corrections
-                float adjustedL = MatchHistogram(originalLab.x, targetStats.lMean, targetStats.lStd, 
+
+                // Convert to LAB inline (no pre-allocated array needed)
+                Vector3 originalLab = ColorSpaceConverter.RGBtoLAB(pixel);
+
+                // Histogram matching
+                float adjustedL = MatchHistogram(originalLab.x, targetStats.lMean, targetStats.lStd,
                     referenceStats.lMean, referenceStats.lStd);
-                float adjustedA = MatchHistogram(originalLab.y, targetStats.aMean, targetStats.aStd, 
+                float adjustedA = MatchHistogram(originalLab.y, targetStats.aMean, targetStats.aStd,
                     referenceStats.aMean, referenceStats.aStd);
-                float adjustedB = MatchHistogram(originalLab.z, targetStats.bMean, targetStats.bStd, 
+                float adjustedB = MatchHistogram(originalLab.z, targetStats.bMean, targetStats.bStd,
                     referenceStats.bMean, referenceStats.bStd);
-                
+
                 // Apply intensity blending
-                float finalL, finalA, finalB;
-                
-                if (preserveLuminance)
-                {
-                    finalL = Mathf.Lerp(originalLab.x, adjustedL, intensity * 0.5f);
-                }
-                else
-                {
-                    finalL = Mathf.Lerp(originalLab.x, adjustedL, intensity);
-                }
-                
-                finalA = Mathf.Lerp(originalLab.y, adjustedA, intensity);
-                finalB = Mathf.Lerp(originalLab.z, adjustedB, intensity);
-                
+                float lIntensity = preserveLuminance ? intensity * 0.5f : intensity;
+                float finalL = Mathf.Lerp(originalLab.x, adjustedL, lIntensity);
+                float finalA = Mathf.Lerp(originalLab.y, adjustedA, intensity);
+                float finalB = Mathf.Lerp(originalLab.z, adjustedB, intensity);
+
                 Vector3 adjustedLabFinal = new Vector3(finalL, finalA, finalB);
-                
-                // Convert back to RGB
-                Color adjustedColor = ColorSpaceConverter.LABtoRGB(adjustedLabFinal);
-                
+
+                // Convert back to RGB (preserve original alpha)
+                Color adjustedColor = ColorSpaceConverter.LABtoRGB(adjustedLabFinal, pixel.a);
+
                 // Conditional luminance preservation
                 if (preserveLuminance)
                 {
-                    Color originalColor = targetPixels[i];
-                    Color fullyPreserved = ColorSpaceConverter.PreserveLuminance(originalColor, adjustedColor);
-                    
+                    Color fullyPreserved = ColorSpaceConverter.PreserveLuminance(pixel, adjustedColor);
                     float preservationStrength = 1.0f - (intensity * 0.5f);
                     adjustedColor = Color.Lerp(adjustedColor, fullyPreserved, preservationStrength);
                 }
-                
+
                 adjustedPixels[i] = adjustedColor;
             }
-            
+
             return adjustedPixels;
+        }
+
+        // Single-pass LAB statistics calculation directly from Color[] (skips transparent pixels)
+        private static LabStatistics CalculateLabStatisticsFromPixels(Color[] pixels)
+        {
+            var stats = new LabStatistics();
+            if (pixels == null || pixels.Length == 0)
+                return stats;
+
+            // Pass 1: calculate means
+            float lSum = 0f, aSum = 0f, bSum = 0f;
+            int opaqueCount = 0;
+
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                if (pixels[i].a < ALPHA_THRESHOLD)
+                    continue;
+
+                Vector3 lab = ColorSpaceConverter.RGBtoLAB(pixels[i]);
+                lSum += lab.x;
+                aSum += lab.y;
+                bSum += lab.z;
+                opaqueCount++;
+            }
+
+            if (opaqueCount == 0)
+                return stats;
+
+            stats.lMean = lSum / opaqueCount;
+            stats.aMean = aSum / opaqueCount;
+            stats.bMean = bSum / opaqueCount;
+
+            // Pass 2: calculate standard deviations
+            float lVarSum = 0f, aVarSum = 0f, bVarSum = 0f;
+
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                if (pixels[i].a < ALPHA_THRESHOLD)
+                    continue;
+
+                Vector3 lab = ColorSpaceConverter.RGBtoLAB(pixels[i]);
+                float lDiff = lab.x - stats.lMean;
+                float aDiff = lab.y - stats.aMean;
+                float bDiff = lab.z - stats.bMean;
+                lVarSum += lDiff * lDiff;
+                aVarSum += aDiff * aDiff;
+                bVarSum += bDiff * bDiff;
+            }
+
+            stats.lStd = Mathf.Sqrt(lVarSum / opaqueCount);
+            stats.aStd = Mathf.Sqrt(aVarSum / opaqueCount);
+            stats.bStd = Mathf.Sqrt(bVarSum / opaqueCount);
+
+            return stats;
         }
         
         
-        private static Color[] HueShiftAdjustment(Color[] targetPixels, Color[] referencePixels, 
+        private static Color[] HueShiftAdjustment(Color[] targetPixels, Color[] referencePixels,
             float intensity, bool preserveLuminance)
         {
-            // Filter out transparent pixels for hue analysis
-            var opaqueReferencePixels = TransparencyUtils.FilterOpaquePixels(referencePixels);
-            var opaqueTargetPixels = TransparencyUtils.FilterOpaquePixels(targetPixels);
-            
-            // Calculate dominant hue from reference (only opaque pixels)
-            float dominantHue = CalculateDominantHue(opaqueReferencePixels);
-            float targetDominantHue = CalculateDominantHue(opaqueTargetPixels);
-            
+            // Calculate dominant hue (filtering transparent pixels inline)
+            float dominantHue = CalculateDominantHueFiltered(referencePixels);
+            float targetDominantHue = CalculateDominantHueFiltered(targetPixels);
+
             float hueShift = dominantHue - targetDominantHue;
-            
+
             var adjustedPixels = new Color[targetPixels.Length];
-            
+
             for (int i = 0; i < targetPixels.Length; i++)
             {
-                // Skip processing for transparent pixels
-                if (TransparencyUtils.IsTransparent(targetPixels[i]))
+                // Skip transparent pixels
+                if (targetPixels[i].a < ALPHA_THRESHOLD)
                 {
                     adjustedPixels[i] = targetPixels[i];
                     continue;
@@ -450,36 +513,32 @@ namespace TexColAdjuster.Editor
                 hsv.x = (hsv.x + hueShift * intensity) % 360f;
                 if (hsv.x < 0) hsv.x += 360f;
                 
-                Color adjustedColor = ColorSpaceConverter.HSVtoRGB(hsv);
-                
+                Color adjustedColor = ColorSpaceConverter.HSVtoRGB(hsv, targetPixels[i].a);
+
                 if (preserveLuminance)
                 {
                     adjustedColor = ColorSpaceConverter.PreserveLuminance(targetPixels[i], adjustedColor);
                 }
-                
+
                 adjustedPixels[i] = adjustedColor;
             }
-            
+
             return adjustedPixels;
         }
-        
-        private static Color[] ColorTransferAdjustment(Color[] targetPixels, Color[] referencePixels, 
+
+        private static Color[] ColorTransferAdjustment(Color[] targetPixels, Color[] referencePixels,
             float intensity, bool preserveLuminance)
         {
-            // Filter out transparent pixels for statistics
-            var opaqueTargetPixels = TransparencyUtils.FilterOpaquePixels(targetPixels);
-            var opaqueReferencePixels = TransparencyUtils.FilterOpaquePixels(referencePixels);
-            
-            // Calculate color statistics (only opaque pixels)
-            var targetStats = CalculateColorStatistics(opaqueTargetPixels);
-            var referenceStats = CalculateColorStatistics(opaqueReferencePixels);
-            
+            // Calculate color statistics (skipping transparent pixels inline)
+            var targetStats = CalculateColorStatisticsFiltered(targetPixels);
+            var referenceStats = CalculateColorStatisticsFiltered(referencePixels);
+
             var adjustedPixels = new Color[targetPixels.Length];
-            
+
             for (int i = 0; i < targetPixels.Length; i++)
             {
-                // Skip processing for transparent pixels
-                if (TransparencyUtils.IsTransparent(targetPixels[i]))
+                // Skip transparent pixels
+                if (targetPixels[i].a < ALPHA_THRESHOLD)
                 {
                     adjustedPixels[i] = targetPixels[i];
                     continue;
@@ -523,13 +582,13 @@ namespace TexColAdjuster.Editor
             
             for (int i = 0; i < targetPixels.Length; i++)
             {
-                // Skip processing for transparent pixels
-                if (TransparencyUtils.IsTransparent(targetPixels[i]))
+                // Skip transparent pixels
+                if (targetPixels[i].a < ALPHA_THRESHOLD)
                 {
                     adjustedPixels[i] = targetPixels[i];
                     continue;
                 }
-                
+
                 adjustedPixels[i] = ColorSpaceConverter.BlendColors(histogramResult[i], colorTransferResult[i], 0.5f);
             }
             
@@ -604,24 +663,74 @@ namespace TexColAdjuster.Editor
             stats.rStd = Mathf.Sqrt(rVarSum / colors.Length);
             stats.gStd = Mathf.Sqrt(gVarSum / colors.Length);
             stats.bStd = Mathf.Sqrt(bVarSum / colors.Length);
-            
+
             return stats;
         }
-        
-        private static float MatchHistogram(float value, float sourceMean, float sourceStd, 
+
+        // Single-pass color statistics from Color[] skipping transparent pixels
+        private static ColorStatistics CalculateColorStatisticsFiltered(Color[] pixels)
+        {
+            var stats = new ColorStatistics();
+            if (pixels == null || pixels.Length == 0)
+                return stats;
+
+            float rSum = 0f, gSum = 0f, bSum = 0f;
+            int opaqueCount = 0;
+
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                if (pixels[i].a < ALPHA_THRESHOLD)
+                    continue;
+                rSum += pixels[i].r;
+                gSum += pixels[i].g;
+                bSum += pixels[i].b;
+                opaqueCount++;
+            }
+
+            if (opaqueCount == 0)
+                return stats;
+
+            stats.rMean = rSum / opaqueCount;
+            stats.gMean = gSum / opaqueCount;
+            stats.bMean = bSum / opaqueCount;
+
+            float rVarSum = 0f, gVarSum = 0f, bVarSum = 0f;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                if (pixels[i].a < ALPHA_THRESHOLD)
+                    continue;
+                float rDiff = pixels[i].r - stats.rMean;
+                float gDiff = pixels[i].g - stats.gMean;
+                float bDiff = pixels[i].b - stats.bMean;
+                rVarSum += rDiff * rDiff;
+                gVarSum += gDiff * gDiff;
+                bVarSum += bDiff * bDiff;
+            }
+
+            stats.rStd = Mathf.Sqrt(rVarSum / opaqueCount);
+            stats.gStd = Mathf.Sqrt(gVarSum / opaqueCount);
+            stats.bStd = Mathf.Sqrt(bVarSum / opaqueCount);
+
+            return stats;
+        }
+
+        private const float HISTOGRAM_MIN_STD = 1.0f;
+        private const float HISTOGRAM_MAX_SIGMA = 3.0f;
+
+        private static float MatchHistogram(float value, float sourceMean, float sourceStd,
             float targetMean, float targetStd)
         {
-            if (sourceStd == 0)
-                return value;
-            
-            // Normalize to standard distribution
-            float normalized = (value - sourceMean) / sourceStd;
-            
-            // Scale to target distribution
+            // Enforce minimum std to prevent noise amplification in low-variance areas (dark regions)
+            float safeSourceStd = Mathf.Max(sourceStd, HISTOGRAM_MIN_STD);
+
+            // Normalize to standard distribution and clamp to ±3σ (covers 99.7% of data)
+            float normalized = (value - sourceMean) / safeSourceStd;
+            normalized = Mathf.Clamp(normalized, -HISTOGRAM_MAX_SIGMA, HISTOGRAM_MAX_SIGMA);
+
             return normalized * targetStd + targetMean;
         }
-        
-        private static float TransferColorChannel(float value, float sourceMean, float sourceStd, 
+
+        private static float TransferColorChannel(float value, float sourceMean, float sourceStd,
             float targetMean, float targetStd)
         {
             if (sourceStd == 0)
@@ -637,24 +746,67 @@ namespace TexColAdjuster.Editor
         {
             if (colors.Length == 0)
                 return 0f;
-            
-            // Calculate average hue (this is a simplified approach)
-            float totalHue = 0f;
+
+            // Circular mean using atan2(sin, cos) to correctly average hue angles
+            float sinSum = 0f;
+            float cosSum = 0f;
             int validHueCount = 0;
-            
+
             foreach (var color in colors)
             {
                 Vector3 hsv = ColorSpaceConverter.RGBtoHSV(color);
                 if (hsv.y > 0.1f) // Only consider colors with sufficient saturation
                 {
-                    totalHue += hsv.x;
+                    float hueRad = hsv.x * Mathf.Deg2Rad;
+                    sinSum += Mathf.Sin(hueRad);
+                    cosSum += Mathf.Cos(hueRad);
                     validHueCount++;
                 }
             }
-            
-            return validHueCount > 0 ? totalHue / validHueCount : 0f;
+
+            if (validHueCount == 0)
+                return 0f;
+
+            float avgRad = Mathf.Atan2(sinSum / validHueCount, cosSum / validHueCount);
+            float avgDeg = avgRad * Mathf.Rad2Deg;
+            if (avgDeg < 0f) avgDeg += 360f;
+            return avgDeg;
         }
-        
+
+        // CalculateDominantHue that skips transparent pixels inline
+        private static float CalculateDominantHueFiltered(Color[] colors)
+        {
+            if (colors == null || colors.Length == 0)
+                return 0f;
+
+            float sinSum = 0f;
+            float cosSum = 0f;
+            int validHueCount = 0;
+
+            for (int i = 0; i < colors.Length; i++)
+            {
+                if (colors[i].a < ALPHA_THRESHOLD)
+                    continue;
+
+                Vector3 hsv = ColorSpaceConverter.RGBtoHSV(colors[i]);
+                if (hsv.y > 0.1f)
+                {
+                    float hueRad = hsv.x * Mathf.Deg2Rad;
+                    sinSum += Mathf.Sin(hueRad);
+                    cosSum += Mathf.Cos(hueRad);
+                    validHueCount++;
+                }
+            }
+
+            if (validHueCount == 0)
+                return 0f;
+
+            float avgRad = Mathf.Atan2(sinSum / validHueCount, cosSum / validHueCount);
+            float avgDeg = avgRad * Mathf.Rad2Deg;
+            if (avgDeg < 0f) avgDeg += 360f;
+            return avgDeg;
+        }
+
         public static List<Color> ExtractDominantColors(Texture2D texture, int colorCount = 5)
         {
             if (texture == null)
@@ -753,19 +905,19 @@ namespace TexColAdjuster.Editor
                     Mathf.Lerp(targetLab.z, referenceLab.z, intensity)
                 );
                 
-                Color adjustedColor = ColorSpaceConverter.LABtoRGB(adjustedLab);
-                
+                Color adjustedColor = ColorSpaceConverter.LABtoRGB(adjustedLab, targetPixels[i].a);
+
                 if (preserveLuminance)
                 {
                     adjustedColor = ColorSpaceConverter.PreserveLuminance(targetPixels[i], adjustedColor);
                 }
-                
+
                 adjustedPixels[i] = adjustedColor;
             }
-            
+
             return adjustedPixels;
         }
-        
+
         private static Color[] HueShiftToColor(Color[] targetPixels, Color referenceColor, 
             float intensity, bool preserveLuminance)
         {
@@ -793,19 +945,19 @@ namespace TexColAdjuster.Editor
                 
                 if (adjustedHsv.x < 0) adjustedHsv.x += 360;
                 
-                Color adjustedColor = ColorSpaceConverter.HSVtoRGB(adjustedHsv);
-                
+                Color adjustedColor = ColorSpaceConverter.HSVtoRGB(adjustedHsv, targetPixels[i].a);
+
                 if (preserveLuminance)
                 {
                     adjustedColor = ColorSpaceConverter.PreserveLuminance(targetPixels[i], adjustedColor);
                 }
-                
+
                 adjustedPixels[i] = adjustedColor;
             }
-            
+
             return adjustedPixels;
         }
-        
+
         private static Color[] ColorTransferToColor(Color[] targetPixels, Color referenceColor, 
             float intensity, bool preserveLuminance)
         {

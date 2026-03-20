@@ -44,7 +44,32 @@ namespace TexColAdjuster
             return Mathf.Sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff);
         }
 
-        // Calculate color difference for difference-based transformation
+        // Calculate color difference as float vector (no byte overflow)
+        public Vector3 GetDifferenceFloat(ColorPixel target)
+        {
+            return new Vector3(
+                target.R - R,
+                target.G - G,
+                target.B - B
+            );
+        }
+
+        // Apply float color difference with intensity
+        public ColorPixel ApplyDifference(Vector3 difference, float intensity = 1.0f)
+        {
+            int newR = R + Mathf.RoundToInt(difference.x * intensity);
+            int newG = G + Mathf.RoundToInt(difference.y * intensity);
+            int newB = B + Mathf.RoundToInt(difference.z * intensity);
+
+            return new ColorPixel(
+                (byte)Mathf.Clamp(newR, 0, 255),
+                (byte)Mathf.Clamp(newG, 0, 255),
+                (byte)Mathf.Clamp(newB, 0, 255),
+                A
+            );
+        }
+
+        [System.Obsolete("Use GetDifferenceFloat + ApplyDifference(Vector3) instead to avoid byte overflow")]
         public ColorPixel GetDifference(ColorPixel target)
         {
             return new ColorPixel(
@@ -55,7 +80,7 @@ namespace TexColAdjuster
             );
         }
 
-        // Apply color difference (TexColAdjuster smart matching algorithm)
+        [System.Obsolete("Use ApplyDifference(Vector3, float) instead to avoid byte overflow")]
         public ColorPixel ApplyDifference(ColorPixel difference, float intensity = 1.0f)
         {
             int newR = R + (int)((sbyte)difference.R * intensity);
@@ -105,16 +130,16 @@ namespace TexColAdjuster
             );
         }
 
-        // Blend with another pixel
+        // Blend with another pixel (preserve original alpha)
         public ColorPixel Blend(ColorPixel other, float factor)
         {
             factor = Mathf.Clamp01(factor);
-            
+
             return new ColorPixel(
                 (byte)Mathf.Lerp(R, other.R, factor),
                 (byte)Mathf.Lerp(G, other.G, factor),
                 (byte)Mathf.Lerp(B, other.B, factor),
-                (byte)Mathf.Lerp(A, other.A, factor)
+                A
             );
         }
 

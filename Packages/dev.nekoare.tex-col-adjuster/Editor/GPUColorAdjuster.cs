@@ -14,6 +14,7 @@ namespace TexColAdjuster.Editor
     {
         private static ComputeShader _labHistogramShader;
         private static ComputeShader _labStatisticsShader;
+        private static ComputeShader _hsbgShader;
         private static bool _shadersLoaded = false;
 
         private const string HISTOGRAM_SHADER_PATH = "Packages/dev.nekoare.tex-col-adjuster/Editor/Shaders/LabHistogramMatching.compute";
@@ -25,6 +26,7 @@ namespace TexColAdjuster.Editor
 
             _labHistogramShader = Resources.Load<ComputeShader>("LabHistogramMatching");
             _labStatisticsShader = Resources.Load<ComputeShader>("LabStatistics");
+            _hsbgShader = Resources.Load<ComputeShader>("HSBGAdjustment");
 
             if (_labHistogramShader == null)
             {
@@ -99,17 +101,11 @@ namespace TexColAdjuster.Editor
             float intensity,
             bool preserveLuminance)
         {
-            // Create intermediate render textures
-            var targetReadWrite = TextureColorSpaceUtility.IsTextureSRGB(targetTexture)
-                ? RenderTextureReadWrite.sRGB
-                : RenderTextureReadWrite.Linear;
-            var referenceReadWrite = TextureColorSpaceUtility.IsTextureSRGB(referenceTexture)
-                ? RenderTextureReadWrite.sRGB
-                : RenderTextureReadWrite.Linear;
-
-            ExtendedRenderTexture targetRT = new ExtendedRenderTexture(targetTexture, targetReadWrite).Create(targetTexture);
-            ExtendedRenderTexture referenceRT = new ExtendedRenderTexture(referenceTexture, referenceReadWrite).Create(referenceTexture);
-            ExtendedRenderTexture resultRT = new ExtendedRenderTexture(targetTexture, targetReadWrite).Create();
+            // All intermediate RTs are Linear: Blit handles sRGB→Linear decode,
+            // compute shader works in linear space, no double sRGB decode/encode
+            ExtendedRenderTexture targetRT = new ExtendedRenderTexture(targetTexture, RenderTextureReadWrite.Linear).Create(targetTexture);
+            ExtendedRenderTexture referenceRT = new ExtendedRenderTexture(referenceTexture, RenderTextureReadWrite.Linear).Create(referenceTexture);
+            ExtendedRenderTexture resultRT = new ExtendedRenderTexture(targetTexture, RenderTextureReadWrite.Linear).Create();
 
             try
             {
@@ -223,6 +219,59 @@ namespace TexColAdjuster.Editor
                 meanBuffer?.Release();
                 stdDevBuffer?.Release();
             }
+        }
+
+        /// <summary>
+        /// Apply HSBG post-adjustments on GPU. Input RenderTexture is consumed and a new result is returned.
+        /// </summary>
+        public static ExtendedRenderTexture ApplyHSBGOnGPU(
+            RenderTexture inputRT,
+            float hueShift,
+            float saturation,
+            float brightness,
+            float gamma,
+            float brightnessOffset = 0f,
+            float contrast = 1f,
+            float midtoneShift = 0f)
+        {
+            LoadShaders();
+
+            if (_hsbgShader == null || !SystemInfo.supportsComputeShaders)
+                return null;
+
+            try
+            {
+                var resultRT = new ExtendedRenderTexture(inputRT.width, inputRT.height, RenderTextureReadWrite.Linear).Create();
+
+                int kernel = _hsbgShader.FindKernel("HSBGAdjust");
+
+                _hsbgShader.SetTexture(kernel, "InputTexture", inputRT);
+                _hsbgShader.SetTexture(kernel, "Result", resultRT);
+                _hsbgShader.SetFloat("HueShift", hueShift);
+                _hsbgShader.SetFloat("Saturation", saturation);
+                _hsbgShader.SetFloat("Brightness", brightness);
+                _hsbgShader.SetFloat("Gamma", gamma);
+                _hsbgShader.SetFloat("BrightnessOffset", brightnessOffset);
+                _hsbgShader.SetFloat("Contrast", contrast);
+                _hsbgShader.SetFloat("MidtoneShift", midtoneShift);
+
+                int threadGroupsX = Mathf.CeilToInt(inputRT.width / 8.0f);
+                int threadGroupsY = Mathf.CeilToInt(inputRT.height / 8.0f);
+                _hsbgShader.Dispatch(kernel, threadGroupsX, threadGroupsY, 1);
+
+                return resultRT;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[TexColorAdjuster GPU] HSBG processing failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        public static bool IsHSBGGPUAvailable()
+        {
+            LoadShaders();
+            return _hsbgShader != null && SystemInfo.supportsComputeShaders;
         }
     }
 }

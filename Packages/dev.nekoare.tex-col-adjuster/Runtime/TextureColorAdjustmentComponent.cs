@@ -116,13 +116,20 @@ namespace TexColAdjuster.Runtime
     [Range(0f, 3f)]
     public float saturation = 1f;
 
-    [Tooltip("Brightness multiplier (1 = no change)")]
-    [Range(0f, 3f)]
-    public float brightness = 1f;
+    [SerializeField, HideInInspector]
+    private int serializedVersion = 1;
+
+    [Tooltip("Brightness offset (-1..1, 0 = no change)")]
+    [Range(-1f, 1f)]
+    public float brightness = 0f;
 
     [Tooltip("Gamma correction (1 = no change). Values <1 make the image lighter; >1 make it darker.")]
     [Range(0.1f, 5f)]
     public float gamma = 1f;
+
+    [Tooltip("Midtone shift (-0.5..0.5). Shifts mid-range tones while preserving shadows and highlights.")]
+    [Range(-0.5f, 0.5f)]
+    public float midtoneShift = 0f;
 
         [Header("High Precision Mode")]
         [Tooltip("Use high precision mode for mesh UV-aware color adjustment")]
@@ -345,14 +352,28 @@ namespace TexColAdjuster.Runtime
             }
         }
 
+        private void OnEnable()
+        {
+            EnsureLegacyBindingMigrated(false);
+            SanitizeBindings(false);
+        }
+
         public void OnBeforeSerialize()
         {
         }
 
         public void OnAfterDeserialize()
         {
-            EnsureLegacyBindingMigrated(false);
-            SanitizeBindings(false);
+            // OnAfterDeserialize はメインスレッド以外から呼ばれることがあるため、
+            // UnityObject (renderer等) にアクセスする処理はここでは行わない。
+            // バインディングのマイグレーションとサニタイズは OnEnable で行う。
+
+            // v0 → v1: brightness を乗算方式(1=変化なし)から加算方式(0=変化なし)に変換
+            if (serializedVersion == 0)
+            {
+                brightness = brightness - 1f;
+                serializedVersion = 1;
+            }
         }
     }
 }

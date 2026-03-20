@@ -20,13 +20,24 @@ namespace TexColorAdjusterNamespace
             "_UseShadow",
             "_ShadowColor",
             "_ShadowBorder",
-            "_ShadowBlur", 
+            "_ShadowBlur",
             "_ShadowStrength",
             "_ShadowBorderColor",
             "_ShadowBorderRange",
-            "_ShadowColorTex",
             "_ShadowNormalStrength",
-            "_ShadowReceive"
+            "_ShadowReceive",
+            // Shadow 2nd
+            "_Shadow2ndColor",
+            "_Shadow2ndBorder",
+            "_Shadow2ndBlur",
+            "_Shadow2ndNormalStrength",
+            "_Shadow2ndReceive",
+            // Shadow 3rd
+            "_Shadow3rdColor",
+            "_Shadow3rdBorder",
+            "_Shadow3rdBlur",
+            "_Shadow3rdNormalStrength",
+            "_Shadow3rdReceive"
         };
 
         // 発光テクスチャ

@@ -26,8 +26,8 @@ namespace TexColAdjuster
 
             ColorPixel[] sourcePixels = ConvertToColorPixels(sourceColors);
             
-            // Calculate the color difference (Color-Changer's core concept)
-            ColorPixel colorDifference = fromColor.GetDifference(toColor);
+            // Calculate the color difference as float vector (no byte overflow)
+            Vector3 colorDifference = fromColor.GetDifferenceFloat(toColor);
             
             // Process pixels based on configuration
             ColorPixel[] processedPixels = ProcessPixels(sourcePixels, fromColor, colorDifference, config, selectionMask);
@@ -47,8 +47,8 @@ namespace TexColAdjuster
         }
 
         // Process all pixels with difference-based transformation
-        private static ColorPixel[] ProcessPixels(ColorPixel[] sourcePixels, ColorPixel fromColor, 
-            ColorPixel colorDifference, ColorTransformConfig config, BitArray selectionMask)
+        private static ColorPixel[] ProcessPixels(ColorPixel[] sourcePixels, ColorPixel fromColor,
+            Vector3 colorDifference, ColorTransformConfig config, BitArray selectionMask)
         {
             ColorPixel[] result = new ColorPixel[sourcePixels.Length];
             
@@ -87,7 +87,7 @@ namespace TexColAdjuster
         }
 
         // Simple mode: Direct difference application
-        private static ColorPixel ProcessPixelSimple(ColorPixel originalPixel, ColorPixel colorDifference, 
+        private static ColorPixel ProcessPixelSimple(ColorPixel originalPixel, Vector3 colorDifference,
             ColorTransformConfig config)
         {
             // Apply the color difference directly with intensity
@@ -100,8 +100,8 @@ namespace TexColAdjuster
         }
 
         // Weighted mode: Distance-based weighting with intelligent falloff
-        private static ColorPixel ProcessPixelWeighted(ColorPixel originalPixel, ColorPixel fromColor, 
-            ColorPixel colorDifference, ColorTransformConfig config)
+        private static ColorPixel ProcessPixelWeighted(ColorPixel originalPixel, ColorPixel fromColor,
+            Vector3 colorDifference, ColorTransformConfig config)
         {
             // Calculate similarity to the source color
             float distance = originalPixel.DistanceTo(fromColor);
@@ -125,8 +125,8 @@ namespace TexColAdjuster
         }
 
         // Advanced mode: Gradient and area-based processing with adaptive algorithms
-        private static ColorPixel ProcessPixelAdvanced(ColorPixel originalPixel, ColorPixel fromColor, 
-            ColorPixel colorDifference, ColorTransformConfig config)
+        private static ColorPixel ProcessPixelAdvanced(ColorPixel originalPixel, ColorPixel fromColor,
+            Vector3 colorDifference, ColorTransformConfig config)
         {
             // Calculate similarity with advanced curve
             float distance = originalPixel.DistanceTo(fromColor);
@@ -141,8 +141,8 @@ namespace TexColAdjuster
             float finalStrength = Mathf.Max(config.minSimilarity, radiusAdjustedStrength);
             
             // Apply gradient-based color difference scaling
-            ColorPixel scaledDifference = ScaleColorDifference(colorDifference, similarity, config);
-            
+            Vector3 scaledDifference = ScaleColorDifference(colorDifference, similarity, config);
+
             // Apply transformation
             ColorPixel transformedPixel = originalPixel.ApplyDifference(scaledDifference, finalStrength);
             
@@ -156,18 +156,13 @@ namespace TexColAdjuster
         }
 
         // Scale color difference based on similarity (advanced mode feature)
-        private static ColorPixel ScaleColorDifference(ColorPixel colorDifference, float similarity, 
+        private static Vector3 ScaleColorDifference(Vector3 colorDifference, float similarity,
             ColorTransformConfig config)
         {
             // Scale the difference based on similarity for more natural transitions
             float scaleFactor = Mathf.Lerp(0.5f, 1.5f, similarity);
-            
-            return new ColorPixel(
-                (byte)(colorDifference.R * scaleFactor),
-                (byte)(colorDifference.G * scaleFactor),
-                (byte)(colorDifference.B * scaleFactor),
-                colorDifference.A
-            );
+
+            return colorDifference * scaleFactor;
         }
 
         // Calculate advanced blend factor for smooth transitions

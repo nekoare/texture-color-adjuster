@@ -1,0 +1,116 @@
+// HSBG (Hue/Saturation/Brightness/Gamma) Post-Adjustment Compute Shader
+// Applies hue shift, saturation, brightness, and gamma correction on GPU
+
+#pragma kernel HSBGAdjust
+
+Texture2D<float4> InputTexture;
+RWTexture2D<float4> Result;
+
+float HueShift;     // degrees (-180..180)
+float Saturation;   // multiplier (1 = no change)
+float Brightness;   // multiplier (1 = no change)
+float Gamma;        // correction (1 = no change)
+float BrightnessOffset; // additive offset (-1..1)
+float Contrast;     // multiplier (1 = no change)
+float MidtoneShift; // midtone center shift (-0.5..0.5)
+
+float3 RGBtoHSV(float3 rgb)
+{
+    float cmax = max(max(rgb.r, rgb.g), rgb.b);
+    float cmin = min(min(rgb.r, rgb.g), rgb.b);
+    float delta = cmax - cmin;
+
+    float h = 0.0;
+    float s = (cmax > 0.0) ? (delta / cmax) : 0.0;
+    float v = cmax;
+
+    if (delta > 0.0)
+    {
+        if (cmax == rgb.r)
+            h = fmod((rgb.g - rgb.b) / delta, 6.0);
+        else if (cmax == rgb.g)
+            h = (rgb.b - rgb.r) / delta + 2.0;
+        else
+            h = (rgb.r - rgb.g) / delta + 4.0;
+
+        h *= 60.0;
+        if (h < 0.0) h += 360.0;
+    }
+
+    return float3(h, s, v);
+}
+
+float3 HSVtoRGB(float3 hsv)
+{
+    float h = hsv.x;
+    float s = hsv.y;
+    float v = hsv.z;
+
+    float c = v * s;
+    float x = c * (1.0 - abs(fmod(h / 60.0, 2.0) - 1.0));
+    float m = v - c;
+
+    float3 rgb;
+    if (h < 60.0)
+        rgb = float3(c, x, 0.0);
+    else if (h < 120.0)
+        rgb = float3(x, c, 0.0);
+    else if (h < 180.0)
+        rgb = float3(0.0, c, x);
+    else if (h < 240.0)
+        rgb = float3(0.0, x, c);
+    else if (h < 300.0)
+        rgb = float3(x, 0.0, c);
+    else
+        rgb = float3(c, 0.0, x);
+
+    return rgb + float3(m, m, m);
+}
+
+[numthreads(8,8,1)]
+void HSBGAdjust(uint3 id : SV_DispatchThreadID)
+{
+    uint width, height;
+    Result.GetDimensions(width, height);
+
+    if (id.x >= width || id.y >= height)
+        return;
+
+    float4 pixel = InputTexture[id.xy];
+
+    // Convert to HSV
+    float3 hsv = RGBtoHSV(pixel.rgb);
+
+    // Apply hue shift
+    hsv.x = fmod(hsv.x + HueShift + 360.0, 360.0);
+
+    // Apply saturation and brightness multipliers
+    hsv.y = saturate(hsv.y * Saturation);
+    hsv.z = saturate(hsv.z * Brightness);
+
+    // Convert back to RGB
+    float3 rgb = HSVtoRGB(hsv);
+
+    // Apply brightness offset
+    rgb += float3(BrightnessOffset, BrightnessOffset, BrightnessOffset);
+    rgb = saturate(rgb);
+
+    // Apply contrast (around 0.5 midpoint)
+    rgb = saturate((rgb - 0.5) * Contrast + 0.5);
+
+    // Apply gamma correction
+    float g = max(Gamma, 0.001);
+    rgb.r = pow(max(rgb.r, 0.0), g);
+    rgb.g = pow(max(rgb.g, 0.0), g);
+    rgb.b = pow(max(rgb.b, 0.0), g);
+
+    // Apply midtone shift (bell curve weight: affects midtones most)
+    if (abs(MidtoneShift) > 0.0001)
+    {
+        float3 weight = 4.0 * rgb * (1.0 - rgb);
+        rgb = saturate(rgb + MidtoneShift * weight);
+    }
+
+    // Preserve original alpha
+    Result[id.xy] = float4(saturate(rgb), pixel.a);
+}

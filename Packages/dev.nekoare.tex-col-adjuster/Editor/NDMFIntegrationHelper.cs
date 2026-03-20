@@ -156,6 +156,7 @@ namespace TexColAdjuster.Editor
             float saturation = 1f,
             float brightness = 1f,
             float gamma = 1f,
+            float midtoneShift = 0f,
             bool useHighPrecisionMode = false,
             GameObject highPrecisionReferenceObject = null,
             int highPrecisionMaterialIndex = 0,
@@ -201,6 +202,7 @@ namespace TexColAdjuster.Editor
             component.saturation = saturation;
             component.brightness = brightness;
             component.gamma = gamma;
+            component.midtoneShift = midtoneShift;
 
             // Apply high precision mode settings
             component.useHighPrecisionMode = useHighPrecisionMode;
@@ -237,6 +239,7 @@ namespace TexColAdjuster.Editor
             float saturation = 1f,
             float brightness = 1f,
             float gamma = 1f,
+            float midtoneShift = 0f,
             bool useHighPrecisionMode = false,
             GameObject highPrecisionReferenceObject = null,
             int highPrecisionMaterialIndex = 0,
@@ -303,6 +306,7 @@ namespace TexColAdjuster.Editor
                 saturation,
                 brightness,
                 gamma,
+                midtoneShift,
                 useHighPrecisionMode,
                 highPrecisionReferenceObject,
                 highPrecisionMaterialIndex,
