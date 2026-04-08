@@ -162,7 +162,9 @@ namespace TexColAdjuster.Editor
             int highPrecisionMaterialIndex = 0,
             int highPrecisionUVChannel = 0,
             int highPrecisionDominantColorCount = 5,
-            bool highPrecisionUseWeightedSampling = true)
+            bool highPrecisionUseWeightedSampling = true,
+            Texture2D targetUVMask = null,
+            Texture2D referenceUVMask = null)
         {
             if (targetRenderer == null)
                 return null;
@@ -211,6 +213,10 @@ namespace TexColAdjuster.Editor
             component.highPrecisionUVChannel = highPrecisionUVChannel;
             component.highPrecisionDominantColorCount = highPrecisionDominantColorCount;
             component.highPrecisionUseWeightedSampling = highPrecisionUseWeightedSampling;
+
+            // Apply UV masks for statistics filtering
+            component.targetUVMask = targetUVMask;
+            component.referenceUVMask = referenceUVMask;
 
             // Enable preview
             component.PreviewEnabled = true;
@@ -378,13 +384,16 @@ namespace TexColAdjuster.Editor
             float saturation = 1f,
             float brightness = 1f,
             float gamma = 1f,
+            float midtoneShift = 0f,
             bool useHighPrecisionMode = false,
             GameObject highPrecisionReferenceObject = null,
             int highPrecisionMaterialIndex = 0,
             int highPrecisionUVChannel = 0,
             int highPrecisionDominantColorCount = 5,
             bool highPrecisionUseWeightedSampling = true,
-            bool includeInactive = false)
+            bool includeInactive = false,
+            Texture2D targetUVMask = null,
+            Texture2D referenceUVMask = null)
         {
             if (targetGameObject == null || targetMaterial == null || referenceTexture == null)
             {
@@ -485,6 +494,11 @@ namespace TexColAdjuster.Editor
             component.saturation = saturation;
             component.brightness = brightness;
             component.gamma = gamma;
+            component.midtoneShift = midtoneShift;
+
+            // Apply UV masks for statistics filtering
+            component.targetUVMask = targetUVMask;
+            component.referenceUVMask = referenceUVMask;
 
             component.useHighPrecisionMode = false;
             component.highPrecisionReferenceObject = null;
@@ -584,6 +598,72 @@ namespace TexColAdjuster.Editor
             maskTexture.name = Path.GetFileNameWithoutExtension(fileName);
 
             string folderPath = EnsureMaskFolder(avatarRoot);
+            string assetPath = Path.Combine(folderPath, fileName).Replace("\\", "/");
+
+            var existingAsset = AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);
+            if (existingAsset != null)
+            {
+                EditorUtility.CopySerialized(maskTexture, existingAsset);
+                EditorUtility.SetDirty(existingAsset);
+                TextureColorSpaceUtility.UnregisterRuntimeTexture(maskTexture);
+                UnityEngine.Object.DestroyImmediate(maskTexture);
+                AssetDatabase.SaveAssets();
+                return existingAsset;
+            }
+
+            AssetDatabase.CreateAsset(maskTexture, assetPath);
+            EditorUtility.SetDirty(maskTexture);
+            AssetDatabase.SaveAssets();
+            return maskTexture;
+        }
+
+        /// <summary>
+        /// Generate and persist a UV mask for LAB histogram statistics filtering.
+        /// Uses UVMapGenerator.GenerateUVMask (same as window preview) and saves as an asset.
+        /// </summary>
+        public static Texture2D GenerateAndPersistUVStatMask(
+            GameObject avatarRoot,
+            Renderer renderer,
+            Material material,
+            Texture2D texture,
+            int materialSlot = -1)
+        {
+            if (renderer == null || texture == null)
+                return null;
+
+            Mesh mesh = null;
+            if (renderer is SkinnedMeshRenderer smr)
+                mesh = smr.sharedMesh;
+            else if (renderer is MeshRenderer mr)
+            {
+                var mf = mr.GetComponent<MeshFilter>();
+                if (mf != null) mesh = mf.sharedMesh;
+            }
+            if (mesh == null) return null;
+
+            // Find material slot
+            int matIndex = materialSlot;
+            if (matIndex < 0 && material != null)
+            {
+                var mats = renderer.sharedMaterials;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    if (mats[i] == material) { matIndex = i; break; }
+                }
+            }
+            if (matIndex < 0) return null;
+
+            var maskTexture = UVMapGenerator.GenerateUVMask(mesh, texture.width, texture.height, matIndex);
+            if (maskTexture == null) return null;
+
+            // Save as asset
+            var root = avatarRoot != null ? avatarRoot : renderer.transform.root.gameObject;
+            string suffix = "_UVStatMask";
+            var fileName = BuildMaskFileName(root, renderer, matIndex)
+                .Replace("_Mask.asset", $"{suffix}.asset");
+            maskTexture.name = Path.GetFileNameWithoutExtension(fileName);
+
+            string folderPath = EnsureMaskFolder(root);
             string assetPath = Path.Combine(folderPath, fileName).Replace("\\", "/");
 
             var existingAsset = AssetDatabase.LoadAssetAtPath<Texture2D>(assetPath);

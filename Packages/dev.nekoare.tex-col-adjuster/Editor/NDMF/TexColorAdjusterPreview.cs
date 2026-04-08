@@ -64,6 +64,8 @@ namespace TexColAdjuster.Editor.NDMF
                         context.Observe(component, c => c.highPrecisionUseWeightedSampling);
                         context.Observe(component, c => c.highPrecisionMaskTexture);
                         context.Observe(component, c => c.highPrecisionMaskThreshold);
+                        context.Observe(component, c => c.targetUVMask);
+                        context.Observe(component, c => c.referenceUVMask);
                         context.ActiveInHierarchy(component.gameObject);
                     }
 
@@ -316,6 +318,8 @@ namespace TexColAdjuster.Editor.NDMF
             hash = CombineHash(hash, binding.materialSlot);
             hash = CombineHash(hash, component.referenceTexture ? component.referenceTexture.GetInstanceID() : 0);
             hash = CombineHash(hash, originalTexture ? originalTexture.GetInstanceID() : 0);
+            hash = CombineHash(hash, component.targetUVMask ? component.targetUVMask.GetInstanceID() : 0);
+            hash = CombineHash(hash, component.referenceUVMask ? component.referenceUVMask.GetInstanceID() : 0);
 
             return hash;
         }
@@ -392,7 +396,9 @@ namespace TexColAdjuster.Editor.NDMF
                                 if (UnityEditor.ShaderUtil.GetPropertyType(shader, i) != UnityEditor.ShaderUtil.ShaderPropertyType.TexEnv)
                                     continue;
                                 string propName = UnityEditor.ShaderUtil.GetPropertyName(shader, i);
-                                if (entry.Material.GetTexture(propName) == entry.Texture)
+                                var existingTex = entry.Material.GetTexture(propName);
+                                if (existingTex == entry.Texture && existingTex != null
+                                    && existingTex.dimension == newResult.dimension)
                                 {
                                     entry.Material.SetTexture(propName, newResult);
                                 }
@@ -603,7 +609,9 @@ namespace TexColAdjuster.Editor.NDMF
                             readableReference,
                             component.intensity,
                             component.preserveLuminance,
-                            component.adjustmentMode
+                            component.adjustmentMode,
+                            component.targetUVMask,
+                            component.referenceUVMask
                         );
                     }
                     else
@@ -620,13 +628,15 @@ namespace TexColAdjuster.Editor.NDMF
                 }
                 else
                 {
-                    // Step 1: LAB histogram matching (全体の色合わせ)
+                    // Step 1: LAB histogram matching (全体の色合わせ, with UV masks for statistics)
                     result = ColorAdjuster.AdjustColors(
                         readableTexture,
                         readableReference,
                         component.intensity,
                         component.preserveLuminance,
-                        component.adjustmentMode
+                        component.adjustmentMode,
+                        component.targetUVMask,
+                        component.referenceUVMask
                     );
 
                     // Step 2: DualSelection refinement (選択色域の追加補正)
@@ -698,13 +708,15 @@ namespace TexColAdjuster.Editor.NDMF
                     return ProcessTextureCPU(component, originalTexture);
                 }
 
-                // Attempt GPU processing
+                // Attempt GPU processing (with UV masks for statistics filtering)
                 Texture result = GPUColorAdjuster.AdjustColorsGPU(
                     originalTexture,
                     component.referenceTexture,
                     component.intensity,
                     component.preserveLuminance,
-                    component.adjustmentMode
+                    component.adjustmentMode,
+                    component.targetUVMask,
+                    component.referenceUVMask
                 );
 
                 // Fallback to CPU if GPU processing failed
@@ -932,7 +944,8 @@ namespace TexColAdjuster.Editor.NDMF
 #endif
                 var tex = originalMaterial.GetTexture(propName);
 
-                if (tex == originalTexture)
+                if (tex == originalTexture && tex != null
+                    && tex.dimension == processedTexture.dimension)
                 {
                     var scale = originalMaterial.GetTextureScale(propName);
                     var offset = originalMaterial.GetTextureOffset(propName);

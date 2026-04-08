@@ -173,7 +173,9 @@ namespace TexColAdjuster.Editor.NDMF
                             readableReference,
                             component.intensity,
                             component.preserveLuminance,
-                            component.adjustmentMode
+                            component.adjustmentMode,
+                            component.targetUVMask,
+                            component.referenceUVMask
                         );
                     }
                     else
@@ -190,13 +192,15 @@ namespace TexColAdjuster.Editor.NDMF
                 }
                 else
                 {
-                    // Step 1: LAB histogram matching (全体の色合わせ)
+                    // Step 1: LAB histogram matching (全体の色合わせ, with UV masks for statistics)
                     result = ColorAdjuster.AdjustColors(
                         readableTexture,
                         readableReference,
                         component.intensity,
                         component.preserveLuminance,
-                        component.adjustmentMode
+                        component.adjustmentMode,
+                        component.targetUVMask,
+                        component.referenceUVMask
                     );
 
                     // Step 2: DualSelection refinement (選択色域の追加補正)

@@ -808,6 +808,19 @@ namespace TexColAdjuster
             bool dualSelectionActive = useDualColorSelection && hasSelectedTargetColor && hasSelectedReferenceColor;
             bool highPrecisionActive = useHighPrecisionMode && IsHighPrecisionConfigValidForDirectTab();
 
+            // Generate UV masks for statistics filtering
+            var targetTexture = GetExperimentalTargetTexture();
+            var targetUVMask = NDMFIntegrationHelper.GenerateAndPersistUVStatMask(
+                renderer.transform.root.gameObject, renderer, selectedTargetMaterial, targetTexture, materialSlot);
+
+            Texture2D referenceUVMask = null;
+            var refRenderer = referenceComponent as Renderer;
+            if (refRenderer != null && selectedReferenceMaterial != null)
+            {
+                referenceUVMask = NDMFIntegrationHelper.GenerateAndPersistUVStatMask(
+                    refRenderer.transform.root.gameObject, refRenderer, selectedReferenceMaterial, referenceTexture);
+            }
+
             var component = NDMFIntegrationHelper.AddOrUpdateComponent(
                 renderer,
                 materialSlot,
@@ -829,7 +842,20 @@ namespace TexColAdjuster
                 highPrecisionConfig.materialIndex,
                 highPrecisionConfig.uvChannel,
                 highPrecisionConfig.dominantColorCount,
-                highPrecisionConfig.useWeightedSampling);
+                highPrecisionConfig.useWeightedSampling,
+                targetUVMask,
+                referenceUVMask);
+
+            // Apply material transfer destructively (not handled by NDMF)
+            if (enableMaterialTransfer && selectedReferenceMaterial != null
+                && IsLiltoonMaterial(selectedReferenceMaterial) && IsLiltoonMaterial(selectedTargetMaterial))
+            {
+                Material transferSource = materialTransferDirection == 0 ? selectedReferenceMaterial : selectedTargetMaterial;
+                Material transferTarget = materialTransferDirection == 0 ? selectedTargetMaterial : selectedReferenceMaterial;
+                Undo.RecordObject(transferTarget, "Transfer Material Settings");
+                LiltoonPresetApplier.TransferDrawingEffects(transferSource, transferTarget, 1.0f);
+                EditorUtility.SetDirty(transferTarget);
+            }
 
             // Clear all window preview state — let NDMF handle preview from now on
             ClearPreview();
@@ -867,6 +893,25 @@ namespace TexColAdjuster
             bool dualSelectionActive = useDualColorSelection && hasSelectedTargetColor && hasSelectedReferenceColor;
             bool highPrecisionActive = useHighPrecisionMode && IsHighPrecisionConfigValidForDirectTab();
 
+            // Generate UV masks for statistics filtering
+            var targetTexture = GetExperimentalTargetTexture();
+            Texture2D targetUVMask = null;
+            var targetRenderer = targetComponent as Renderer;
+            if (targetRenderer != null && targetTexture != null)
+            {
+                int matSlot = NDMFIntegrationHelper.FindMaterialSlotWithMaterial(targetRenderer, selectedTargetMaterial);
+                targetUVMask = NDMFIntegrationHelper.GenerateAndPersistUVStatMask(
+                    targetGameObject.transform.root.gameObject, targetRenderer, selectedTargetMaterial, targetTexture, matSlot);
+            }
+
+            Texture2D referenceUVMask = null;
+            var refRenderer = referenceComponent as Renderer;
+            if (refRenderer != null && selectedReferenceMaterial != null)
+            {
+                referenceUVMask = NDMFIntegrationHelper.GenerateAndPersistUVStatMask(
+                    refRenderer.transform.root.gameObject, refRenderer, selectedReferenceMaterial, referenceTexture);
+            }
+
             NDMFIntegrationHelper.AddNDMFComponentsUnderAvatarRoot(
                 targetGameObject,
                 selectedTargetMaterial,
@@ -878,17 +923,31 @@ namespace TexColAdjuster
                 selectedTargetColor,
                 selectedReferenceColor,
                 colorSelectionRange,
-                0f,
-                1f,
-                1f,
-                1f,
+                hueShift,
+                saturationMultiplier,
+                brightnessOffset,
+                gammaCorrection,
+                midtoneShift,
                 highPrecisionActive,
                 highPrecisionActive ? highPrecisionConfig.referenceGameObject : null,
                 highPrecisionConfig.materialIndex,
                 highPrecisionConfig.uvChannel,
                 highPrecisionConfig.dominantColorCount,
                 highPrecisionConfig.useWeightedSampling,
-                includeInactiveObjects);
+                includeInactiveObjects,
+                targetUVMask,
+                referenceUVMask);
+
+            // Apply material transfer destructively (not handled by NDMF)
+            if (enableMaterialTransfer && selectedReferenceMaterial != null
+                && IsLiltoonMaterial(selectedReferenceMaterial) && IsLiltoonMaterial(selectedTargetMaterial))
+            {
+                Material transferSource = materialTransferDirection == 0 ? selectedReferenceMaterial : selectedTargetMaterial;
+                Material transferTarget = materialTransferDirection == 0 ? selectedTargetMaterial : selectedReferenceMaterial;
+                Undo.RecordObject(transferTarget, "Transfer Material Settings");
+                LiltoonPresetApplier.TransferDrawingEffects(transferSource, transferTarget, 1.0f);
+                EditorUtility.SetDirty(transferTarget);
+            }
 
             // Clear all window preview state — let NDMF handle preview from now on
             ClearPreview();

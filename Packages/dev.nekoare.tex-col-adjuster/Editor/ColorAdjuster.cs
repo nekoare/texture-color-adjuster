@@ -57,7 +57,71 @@ namespace TexColAdjuster.Editor
             return null;
         }
         
-        public static Texture2D AdjustColorsWithDualSelection(Texture2D targetTexture, Texture2D referenceTexture, 
+        /// <summary>
+        /// AdjustColors with optional UV masks for statistics filtering.
+        /// Masks limit which pixels contribute to LAB histogram statistics (white = included).
+        /// Color transformation is still applied to all opaque pixels.
+        /// </summary>
+        public static Texture2D AdjustColors(Texture2D targetTexture, Texture2D referenceTexture,
+            float intensity, bool preserveLuminance, ColorAdjustmentMode mode,
+            Texture2D targetUVMask, Texture2D referenceUVMask)
+        {
+            if (targetTexture == null || referenceTexture == null)
+                return null;
+
+            Color[] targetPixels = TextureUtils.GetPixelsSafe(targetTexture);
+            Color[] referencePixels = TextureUtils.GetPixelsSafe(referenceTexture);
+
+            if (targetPixels == null || referencePixels == null)
+                return null;
+
+            Color[] targetMaskPixels = targetUVMask != null ? TextureUtils.GetPixelsSafe(targetUVMask) : null;
+            Color[] referenceMaskPixels = referenceUVMask != null ? TextureUtils.GetPixelsSafe(referenceUVMask) : null;
+
+            Color[] adjustedPixels;
+
+            switch (mode)
+            {
+                case ColorAdjustmentMode.LabHistogramMatching:
+                    adjustedPixels = LabHistogramMatching(targetPixels, referencePixels, intensity, preserveLuminance,
+                        targetMaskPixels, referenceMaskPixels);
+                    break;
+                default:
+                    // Other modes don't support UV masks yet — fall back to unmasked
+                    adjustedPixels = AdjustColorsArray(targetPixels, referencePixels, intensity, preserveLuminance, mode);
+                    break;
+            }
+
+            var result = TextureColorSpaceUtility.CreateRuntimeTextureLike(targetTexture);
+            if (TextureUtils.SetPixelsSafe(result, adjustedPixels))
+            {
+                return result;
+            }
+
+            TextureColorSpaceUtility.UnregisterRuntimeTexture(result);
+            UnityEngine.Object.DestroyImmediate(result);
+            return null;
+        }
+
+        private static Color[] AdjustColorsArray(Color[] targetPixels, Color[] referencePixels,
+            float intensity, bool preserveLuminance, ColorAdjustmentMode mode)
+        {
+            switch (mode)
+            {
+                case ColorAdjustmentMode.LabHistogramMatching:
+                    return LabHistogramMatching(targetPixels, referencePixels, intensity, preserveLuminance);
+                case ColorAdjustmentMode.HueShift:
+                    return HueShiftAdjustment(targetPixels, referencePixels, intensity, preserveLuminance);
+                case ColorAdjustmentMode.ColorTransfer:
+                    return ColorTransferAdjustment(targetPixels, referencePixels, intensity, preserveLuminance);
+                case ColorAdjustmentMode.AdaptiveAdjustment:
+                    return AdaptiveAdjustment(targetPixels, referencePixels, intensity, preserveLuminance);
+                default:
+                    return targetPixels;
+            }
+        }
+
+        public static Texture2D AdjustColorsWithDualSelection(Texture2D targetTexture, Texture2D referenceTexture,
             Color targetColor, Color referenceColor, float intensity, bool preserveLuminance, ColorAdjustmentMode mode, float selectionRange = 0.3f)
         {
             if (targetTexture == null || referenceTexture == null)
@@ -377,11 +441,12 @@ namespace TexColAdjuster.Editor
         }
         
         private static Color[] LabHistogramMatching(Color[] targetPixels, Color[] referencePixels,
-            float intensity, bool preserveLuminance)
+            float intensity, bool preserveLuminance,
+            Color[] targetMaskPixels = null, Color[] referenceMaskPixels = null)
         {
             // Calculate LAB statistics in a single pass (opaque pixels only, no LINQ allocation)
-            var targetStats = CalculateLabStatisticsFromPixels(targetPixels);
-            var referenceStats = CalculateLabStatisticsFromPixels(referencePixels);
+            var targetStats = CalculateLabStatisticsFromPixels(targetPixels, targetMaskPixels);
+            var referenceStats = CalculateLabStatisticsFromPixels(referencePixels, referenceMaskPixels);
 
             var adjustedPixels = new Color[targetPixels.Length];
 
@@ -433,11 +498,18 @@ namespace TexColAdjuster.Editor
         }
 
         // Single-pass LAB statistics calculation directly from Color[] (skips transparent pixels)
-        private static LabStatistics CalculateLabStatisticsFromPixels(Color[] pixels)
+        // When maskPixels is provided, only pixels where the mask is white (r > 0.5) are included in statistics.
+        private static LabStatistics CalculateLabStatisticsFromPixels(Color[] pixels, Color[] maskPixels = null)
         {
             var stats = new LabStatistics();
             if (pixels == null || pixels.Length == 0)
                 return stats;
+
+            bool useMask = maskPixels != null && maskPixels.Length == pixels.Length;
+            if (maskPixels != null && maskPixels.Length != pixels.Length)
+            {
+                Debug.LogWarning($"[TexColorAdjuster] UV mask size ({maskPixels.Length}) does not match pixel count ({pixels.Length}). Mask will be ignored for statistics.");
+            }
 
             // Pass 1: calculate means
             float lSum = 0f, aSum = 0f, bSum = 0f;
@@ -446,6 +518,8 @@ namespace TexColAdjuster.Editor
             for (int i = 0; i < pixels.Length; i++)
             {
                 if (pixels[i].a < ALPHA_THRESHOLD)
+                    continue;
+                if (useMask && maskPixels[i].r < 0.5f)
                     continue;
 
                 Vector3 lab = ColorSpaceConverter.RGBtoLAB(pixels[i]);
@@ -468,6 +542,8 @@ namespace TexColAdjuster.Editor
             for (int i = 0; i < pixels.Length; i++)
             {
                 if (pixels[i].a < ALPHA_THRESHOLD)
+                    continue;
+                if (useMask && maskPixels[i].r < 0.5f)
                     continue;
 
                 Vector3 lab = ColorSpaceConverter.RGBtoLAB(pixels[i]);

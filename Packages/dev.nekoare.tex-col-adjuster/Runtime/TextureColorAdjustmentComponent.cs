@@ -131,6 +131,13 @@ namespace TexColAdjuster.Runtime
     [Range(-0.5f, 0.5f)]
     public float midtoneShift = 0f;
 
+        [Header("UV Mask for Statistics")]
+        [Tooltip("UV mask for the target texture — limits LAB histogram statistics to the mesh-used area")]
+        public Texture2D targetUVMask;
+
+        [Tooltip("UV mask for the reference texture — limits LAB histogram statistics to the mesh-used area")]
+        public Texture2D referenceUVMask;
+
         [Header("High Precision Mode")]
         [Tooltip("Use high precision mode for mesh UV-aware color adjustment")]
         public bool useHighPrecisionMode = false;
