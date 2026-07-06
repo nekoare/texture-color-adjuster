@@ -540,9 +540,15 @@ namespace TexColAdjuster
         /// 圧縮テクスチャを一時的に非圧縮にしてキャッシュする。
         /// 同じテクスチャが既にキャッシュされていればそれを返す。
         /// </summary>
-        private Texture2D GetUncompressedTexture(Texture2D source, ref Texture2D cachedTexture, ref Texture2D cachedSource, ref TextureImportBackup backup)
+        private Texture2D GetUncompressedTexture(Texture2D source, ref Texture2D cachedTexture, ref Texture2D cachedSource, ref TextureImportBackup backup, bool allowReimport = true)
         {
             if (source == null) return null;
+
+            // ウィンドウ内プレビュー等では、アセット再インポート（重い＋lilToon警告＋import設定の一時書き換え）を避け、
+            // 元テクスチャをそのまま返す。下流(GPU Blit / MakeReadableCopy)は圧縮テクスチャを直接扱えるため機能上は問題なく、
+            // ブロックノイズはNDMF Sceneプレビューと同等。最終ビルド結果はビルド経路で非圧縮化されるため無影響。
+            if (!allowReimport)
+                return source;
 
             // Cache hit
             if (cachedSource == source && cachedTexture != null)
@@ -675,9 +681,10 @@ namespace TexColAdjuster
 
             if (refTexture == null || targetTexture == null) return;
 
-            // Get uncompressed versions to avoid block noise from compressed formats (DXT etc.)
-            var uncompressedTarget = GetUncompressedTexture(targetTexture, ref _cachedUncompressedTarget, ref _cachedUncompressedTargetSource, ref _targetImportBackup);
-            var uncompressedRef = GetUncompressedTexture(refTexture, ref _cachedUncompressedRef, ref _cachedUncompressedRefSource, ref _refImportBackup);
+            // ウィンドウ内プレビューは再インポートせず元テクスチャを使う（重さ・lilToon警告・import設定書き換えを回避）。
+            // ブロックノイズ低減が必要な最終結果は破壊的適用/NDMFビルド側で担保される。
+            var uncompressedTarget = GetUncompressedTexture(targetTexture, ref _cachedUncompressedTarget, ref _cachedUncompressedTargetSource, ref _targetImportBackup, allowReimport: false);
+            var uncompressedRef = GetUncompressedTexture(refTexture, ref _cachedUncompressedRef, ref _cachedUncompressedRefSource, ref _refImportBackup, allowReimport: false);
 
             // Use the existing preview generation logic with main color textures
             var originalRefTexture = referenceTexture;

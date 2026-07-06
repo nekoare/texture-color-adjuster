@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEditor;
 using TexColAdjuster.Editor;
 using TexColAdjuster.Editor.Models;
+using TexColAdjuster.Runtime;
 using ColorAdjustmentMode = TexColAdjuster.Runtime.ColorAdjustmentMode;
 
 namespace TexColAdjuster
@@ -846,6 +847,14 @@ namespace TexColAdjuster
                 targetUVMask,
                 referenceUVMask);
 
+            // このパーツ(renderer/slot)を専有し、「全体に適用」ホスト等の重複バインディングを解除する。
+            // これにより per-part の色が全体設定を確実に上書きする。
+            if (component != null)
+            {
+                NDMFIntegrationHelper.ReleaseBindingFromOthers(
+                    renderer.transform.root.gameObject, component, renderer, materialSlot);
+            }
+
             // Apply material transfer destructively (not handled by NDMF)
             if (enableMaterialTransfer && selectedReferenceMaterial != null
                 && IsLiltoonMaterial(selectedReferenceMaterial) && IsLiltoonMaterial(selectedTargetMaterial))
@@ -862,9 +871,12 @@ namespace TexColAdjuster
 
             if (component != null)
             {
-                EditorUtility.DisplayDialog("完了", $"NDMFコンポーネントを '{renderer.gameObject.name}' に設定しました。", "OK");
-                Selection.activeObject = component;
-                EditorGUIUtility.PingObject(component);
+                // モーダルダイアログ・選択移動は連続適用（複数パーツ）を妨げるため、
+                // ウィンドウ内インライン表示に置き換える。
+                // 適用結果はシーンのライブプレビューと「適用済みパーツ」一覧で確認できる。
+                directApplyStatusMessage = LocalizationManager.GetFormattedString("applied_to_part_status", renderer.gameObject.name);
+                Repaint();
+                SceneView.RepaintAll();
             }
         }
 
@@ -884,6 +896,24 @@ namespace TexColAdjuster
             {
                 EditorUtility.DisplayDialog("エラー", "参照マテリアルからメインテクスチャを取得できませんでした。", "OK");
                 return;
+            }
+
+            // 共有マテリアルの警告：同じマテリアルを複数パーツが使っている場合、
+            // 「全体に適用」は全パーツを同じ色に統一してしまう（パーツごとに別色にはできない）。
+            var avatarRoot = targetGameObject.transform.root != null
+                ? targetGameObject.transform.root.gameObject
+                : targetGameObject;
+            int sharedRendererCount = NDMFIntegrationHelper.CountRenderersUsingMaterial(
+                avatarRoot, selectedTargetMaterial, includeInactiveObjects);
+            if (sharedRendererCount >= 2)
+            {
+                bool proceed = EditorUtility.DisplayDialog(
+                    LocalizationManager.Get("shared_material_warning_title"),
+                    LocalizationManager.GetFormattedString("shared_material_warning_body", sharedRendererCount),
+                    LocalizationManager.Get("shared_material_warning_continue"),
+                    LocalizationManager.Get("shared_material_warning_cancel"));
+                if (!proceed)
+                    return;
             }
 
             // Temporarily restore original material so NDMF finds correct material references
@@ -1115,6 +1145,11 @@ namespace TexColAdjuster
 
         private void DrawDirectTabActionButtons()
         {
+            if (useNDMFDirectMode)
+            {
+                EditorGUILayout.LabelField(LocalizationManager.Get("apply_per_part_hint"), EditorStyles.wordWrappedMiniLabel);
+            }
+
             EditorGUILayout.BeginHorizontal();
             float actionButtonHeight = EditorGUIUtility.singleLineHeight * 2f;
 
@@ -1150,6 +1185,229 @@ namespace TexColAdjuster
             GUI.enabled = true;
 
             EditorGUILayout.EndHorizontal();
+
+            // Inline apply status (replaces the modal completion dialog) + applied-parts management list
+            if (useNDMFDirectMode)
+            {
+                if (!string.IsNullOrEmpty(directApplyStatusMessage))
+                {
+                    var prevColor = GUI.color;
+                    GUI.color = new Color(0.4f, 0.8f, 0.4f);
+                    EditorGUILayout.LabelField(directApplyStatusMessage, EditorStyles.wordWrappedMiniLabel);
+                    GUI.color = prevColor;
+                }
+
+                DrawAppliedPartsList();
+            }
+        }
+
+        /// <summary>
+        /// 現在の対象アバター配下に適用済みの TextureColorAdjustmentComponent を一覧表示する。
+        /// パーツごとに別色を割り当てる運用（案2-A）を分かりやすくし、削除で取り消せるようにする。
+        /// コンポーネントの増減には NDMF プレビューが自動追従する。
+        /// </summary>
+        private void DrawAppliedPartsList()
+        {
+            if (targetGameObject == null)
+                return;
+
+            var root = targetGameObject.transform.root != null
+                ? targetGameObject.transform.root.gameObject
+                : targetGameObject;
+
+            var components = root.GetComponentsInChildren<TextureColorAdjustmentComponent>(true);
+            var entries = new List<TextureColorAdjustmentComponent>();
+            foreach (var comp in components)
+            {
+                if (comp == null)
+                    continue;
+                if (comp.EnumerateValidBindings().Any())
+                    entries.Add(comp);
+            }
+
+            if (entries.Count == 0)
+                return;
+
+            GUILayout.Space(8);
+            EditorGUILayout.LabelField(LocalizationManager.Get("applied_parts_header"), EditorStyles.boldLabel);
+            EditorGUILayout.BeginVertical("box");
+
+            TextureColorAdjustmentComponent toDelete = null;
+            TextureColorAdjustmentComponent toEdit = null;
+
+            foreach (var comp in entries)
+            {
+                var bindings = comp.EnumerateValidBindings().ToList();
+                string refName = comp.referenceTexture != null
+                    ? comp.referenceTexture.name
+                    : LocalizationManager.Get("not_selected");
+
+                EditorGUILayout.BeginHorizontal();
+
+                bool isPerPart = bindings.Count == 1;
+                if (isPerPart)
+                {
+                    var binding = bindings[0];
+                    string partName = binding.renderer != null ? binding.renderer.gameObject.name : "?";
+                    EditorGUILayout.LabelField($"{partName}  ←  {refName}", GUILayout.MinWidth(120));
+                }
+                else
+                {
+                    // 「全体に適用」で作られた複数バインディングのホスト
+                    var prevColor = GUI.color;
+                    GUI.color = new Color(1f, 0.75f, 0.35f);
+                    EditorGUILayout.LabelField(
+                        LocalizationManager.GetFormattedString("applied_all_row", bindings.Count, refName),
+                        GUILayout.MinWidth(120));
+                    GUI.color = prevColor;
+                }
+
+                // 編集は per-part 行のみ（全体ホストは束ねているため個別編集の意味が薄い）
+                if (isPerPart)
+                {
+                    if (GUILayout.Button(LocalizationManager.Get("edit_short"), GUILayout.Width(50)))
+                    {
+                        toEdit = comp;
+                    }
+                }
+
+                if (GUILayout.Button(LocalizationManager.Get("delete_short"), GUILayout.Width(50)))
+                {
+                    toDelete = comp;
+                }
+
+                EditorGUILayout.EndHorizontal();
+            }
+
+            EditorGUILayout.EndVertical();
+
+            if (toDelete != null)
+            {
+                Undo.DestroyObjectImmediate(toDelete);
+                directApplyStatusMessage = null;
+                Repaint();
+                SceneView.RepaintAll();
+            }
+            else if (toEdit != null)
+            {
+                LoadAppliedPartIntoEditor(toEdit);
+            }
+        }
+
+        /// <summary>
+        /// 適用済みコンポーネントの設定をエディタの各入力欄へ復元する（案2-A Phase 2）。
+        /// 対象パーツ・調整スライダーはそのまま復元。参照元(reference)は referenceTexture を
+        /// 手掛かりにシーン内から探索して復元する（見つからなければ再選択を促す）。
+        /// 復元後に再度「パーツごとに適用」を押すと、同じコンポーネントが上書き更新される。
+        /// </summary>
+        private void LoadAppliedPartIntoEditor(TextureColorAdjustmentComponent comp)
+        {
+            if (comp == null)
+                return;
+
+            var binding = comp.EnumerateValidBindings().FirstOrDefault();
+            var targetRenderer = binding.renderer;
+            if (targetRenderer == null)
+                return;
+
+            // 現在のプレビュー状態を一旦解除してから対象を切り替える
+            RestoreScenePreview();
+            RestoreUncompressedTextureCache();
+            ClearPreview();
+
+            // --- 対象パーツの復元 ---
+            targetGameObject = targetRenderer.gameObject;
+            targetComponent = targetRenderer;
+            var targetMats = targetRenderer.sharedMaterials;
+            int maxSlot = (targetMats != null && targetMats.Length > 0) ? targetMats.Length - 1 : 0;
+            int slot = Mathf.Clamp(binding.materialSlot, 0, maxSlot);
+            selectedTargetMaterial = (targetMats != null && slot < targetMats.Length) ? targetMats[slot] : null;
+
+            // --- 調整パラメータの復元 ---
+            adjustmentIntensity = comp.intensity * 100f; // 0-1 → 0-100
+            adjustmentMode = comp.adjustmentMode;
+            preserveLuminance = comp.preserveLuminance;
+            useDualColorSelection = comp.useDualColorSelection;
+            selectedTargetColor = comp.targetColor;
+            selectedReferenceColor = comp.referenceColor;
+            hasSelectedTargetColor = comp.useDualColorSelection;
+            hasSelectedReferenceColor = comp.useDualColorSelection;
+            colorSelectionRange = comp.selectionRange;
+            hueShift = comp.hueShift;
+            saturationMultiplier = comp.saturation;
+            brightnessOffset = comp.brightness;
+            gammaCorrection = comp.gamma;
+            midtoneShift = comp.midtoneShift;
+
+            useHighPrecisionMode = comp.useHighPrecisionMode;
+            if (highPrecisionConfig == null)
+                highPrecisionConfig = new HighPrecisionProcessor.HighPrecisionConfig();
+            highPrecisionConfig.materialIndex = comp.highPrecisionMaterialIndex;
+            highPrecisionConfig.uvChannel = comp.highPrecisionUVChannel;
+            highPrecisionConfig.dominantColorCount = comp.highPrecisionDominantColorCount;
+            highPrecisionConfig.useWeightedSampling = comp.highPrecisionUseWeightedSampling;
+
+            // --- 参照元の復元（referenceTexture から _MainTex 一致を探索） ---
+            if (comp.referenceTexture != null
+                && TryFindMaterialByMainTexture(comp.referenceTexture, out var refRenderer, out var refMaterial))
+            {
+                referenceGameObject = refRenderer.gameObject;
+                referenceComponent = refRenderer;
+                selectedReferenceMaterial = refMaterial;
+                highPrecisionConfig.referenceGameObject = refRenderer.gameObject;
+                directApplyStatusMessage = LocalizationManager.GetFormattedString("edit_loaded_status", targetRenderer.gameObject.name);
+            }
+            else
+            {
+                referenceGameObject = null;
+                referenceComponent = null;
+                selectedReferenceMaterial = null;
+                highPrecisionConfig.referenceGameObject = null;
+                directApplyStatusMessage = LocalizationManager.Get("edit_reference_missing");
+            }
+
+            UpdateCurrentMeshInfo();
+            CheckForExperimentalAutoPreview();
+            Repaint();
+        }
+
+        /// <summary>
+        /// シーン内（非アクティブ含む）から _MainTex が指定テクスチャに一致するマテリアルを持つ
+        /// Renderer を探す。参照元の復元に用いる。複数一致した場合は最初に見つかったものを返す。
+        /// </summary>
+        private bool TryFindMaterialByMainTexture(Texture2D texture, out Renderer foundRenderer, out Material foundMaterial)
+        {
+            foundRenderer = null;
+            foundMaterial = null;
+
+            if (texture == null)
+                return false;
+
+            var renderers = UnityEngine.Object.FindObjectsOfType<Renderer>(true);
+            foreach (var renderer in renderers)
+            {
+                if (renderer == null)
+                    continue;
+
+                var materials = renderer.sharedMaterials;
+                if (materials == null)
+                    continue;
+
+                foreach (var material in materials)
+                {
+                    if (material == null)
+                        continue;
+
+                    if (material.HasProperty("_MainTex") && material.GetTexture("_MainTex") == texture)
+                    {
+                        foundRenderer = renderer;
+                        foundMaterial = material;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         private void DrawDropAreaLabel(string localizationKey, GameObject assignedGameObject, Material selectedMaterial)

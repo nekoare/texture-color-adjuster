@@ -107,6 +107,18 @@ namespace TexColAdjuster.Editor
             AddLocalization("apply_adjustment", "調整を適用", "Apply Adjustment");
             AddLocalization("apply_to_parts", "パーツごとに適用", "Apply Per Part");
             AddLocalization("ndmf_apply_all", "全体に適用", "Apply to All");
+            AddLocalization("apply_per_part_hint", "「パーツごとに適用」＝選択中のパーツだけに適用します（パーツごとに別々の色にできます）。", "\"Apply Per Part\" affects only the selected part (each part can have a different color).");
+            AddLocalization("applied_to_part_status", "「{0}」に適用しました。", "Applied to '{0}'.");
+            AddLocalization("applied_parts_header", "適用済みパーツ", "Applied Parts");
+            AddLocalization("applied_all_row", "全体: {0}パーツ ← {1}", "All: {0} parts ← {1}");
+            AddLocalization("delete_short", "削除", "Delete");
+            AddLocalization("edit_short", "編集", "Edit");
+            AddLocalization("shared_material_warning_title", "共有マテリアルの確認", "Shared Material Warning");
+            AddLocalization("shared_material_warning_body", "このマテリアルは {0} 個のパーツで共有されています。\n『全体に適用』を押すと、それらのパーツはすべて同じ色になります（パーツごとに別々の色にはできません）。\n\nパーツごとに違う色にしたい場合は、各パーツを選んで『パーツごとに適用』を実行してください。\n\nこのまま全体に同じ色を適用しますか？", "This material is shared by {0} parts.\n\"Apply to All\" will make all of them the same color (they cannot have different colors per part).\n\nTo give each part a different color, select each part and use \"Apply Per Part\".\n\nApply the same color to all of them anyway?");
+            AddLocalization("shared_material_warning_continue", "全体に適用する", "Apply to All");
+            AddLocalization("shared_material_warning_cancel", "キャンセル", "Cancel");
+            AddLocalization("edit_reference_missing", "参照元が見つかりませんでした。参照パーツを選び直してください。", "Reference source not found. Please re-select the reference part.");
+            AddLocalization("edit_loaded_status", "「{0}」の設定を読み込みました。調整して『パーツごとに適用』で更新できます。", "Loaded settings for '{0}'. Adjust and press 'Apply Per Part' to update.");
             AddLocalization("reset_inputs", "入力をリセット", "Reset Inputs");
             AddLocalization("ndmf_toggle_label", "NDMFを使用", "Use NDMF");
             AddLocalization("ndmf_toggle_note", "テクスチャそのものを変更せず，アップロード時に反映されるようにします", "Applies at upload time without modifying the original textures.");

@@ -114,6 +114,9 @@ namespace TexColAdjuster
         private bool useNewUI = true;
         private bool showAdvancedSettingsFoldout = false;
         private bool showNDMFSettingsFoldout = false;
+
+        // Inline status message for per-part apply (replaces the modal completion dialog)
+        private string directApplyStatusMessage = null;
         private const string EditorPrefKey_UseNewUI = "TexColAdjuster_UseNewUI";
         
         // Shader transfer new UI fields

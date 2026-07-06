@@ -115,6 +115,107 @@ namespace TexColAdjuster.Editor
         }
 
         /// <summary>
+        /// Count how many renderers under the given root use the specified material (in any slot).
+        /// Used to warn before "Apply to All", since a material shared by multiple parts
+        /// cannot display different colors per part.
+        /// </summary>
+        public static int CountRenderersUsingMaterial(GameObject root, Material material, bool includeInactive)
+        {
+            if (root == null || material == null)
+                return 0;
+
+            int count = 0;
+            var renderers = root.GetComponentsInChildren<Renderer>(includeInactive);
+            foreach (var renderer in renderers)
+            {
+                if (renderer == null)
+                    continue;
+
+                var materials = renderer.sharedMaterials;
+                if (materials == null)
+                    continue;
+
+                foreach (var mat in materials)
+                {
+                    if (mat == material)
+                    {
+                        count++;
+                        break;
+                    }
+                }
+            }
+
+            return count;
+        }
+
+        /// <summary>
+        /// Remove the given (renderer, materialSlot) binding from every component under root
+        /// except the specified owner. Used so a per-part adjustment takes exclusive ownership
+        /// of a renderer/slot, overriding any "Apply to All" host component that also covered it.
+        /// </summary>
+        public static void ReleaseBindingFromOthers(
+            GameObject root,
+            TextureColorAdjustmentComponent owner,
+            Renderer renderer,
+            int materialSlot)
+        {
+            if (root == null || renderer == null)
+                return;
+
+            var components = root.GetComponentsInChildren<TextureColorAdjustmentComponent>(true);
+            foreach (var comp in components)
+            {
+                if (comp == null || comp == owner)
+                    continue;
+
+                var kept = new List<TextureColorAdjustmentComponent.TargetBinding>();
+                bool changed = false;
+                foreach (var binding in comp.EnumerateValidBindings())
+                {
+                    if (binding.renderer == renderer && binding.materialSlot == materialSlot)
+                    {
+                        changed = true;
+                        continue;
+                    }
+                    kept.Add(binding);
+                }
+
+                if (changed)
+                {
+                    Undo.RecordObject(comp, "Release binding for per-part adjustment");
+                    comp.SetBindings(kept);
+                    EditorUtility.SetDirty(comp);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Whether a per-part component (one living on the renderer's own GameObject, not the
+        /// given host) already owns this (renderer, slot). Used by "Apply to All" to skip
+        /// renderers that already have their own per-part adjustment.
+        /// </summary>
+        private static bool IsSlotClaimedByPerPart(Renderer renderer, int slot, TextureColorAdjustmentComponent host)
+        {
+            if (renderer == null)
+                return false;
+
+            var comps = renderer.GetComponents<TextureColorAdjustmentComponent>();
+            foreach (var comp in comps)
+            {
+                if (comp == null || comp == host)
+                    continue;
+
+                foreach (var binding in comp.EnumerateValidBindings())
+                {
+                    if (binding.renderer == renderer && binding.materialSlot == slot)
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Find the material slot index that contains the specified material reference
         /// </summary>
         public static int FindMaterialSlotWithMaterial(Renderer renderer, Material material)
@@ -459,6 +560,11 @@ namespace TexColAdjuster.Editor
 
                     var mainTexture = mat.GetTexture("_MainTex") as Texture2D;
                     if (mainTexture == null)
+                        continue;
+
+                    // 「パーツごとに適用」で個別色を割り当て済みの renderer/slot は
+                    // 「全体に適用」で上書きしない（per-part を優先する）。
+                    if (IsSlotClaimedByPerPart(renderer, slot, component))
                         continue;
 
                     if (!bindingSet.Add((renderer, slot)))
