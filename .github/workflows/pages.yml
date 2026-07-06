@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -143,3 +143,20 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # 生成したZIPと更新後のindex.jsonをリポジトリに commit し返し、過去バージョンが消えないようにする。
+      # [skip ci] を付けて再トリガー（無限ループ）を防止する。
+      - name: Persist generated ZIP and index.json to repository
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          ZIP_NAME="dev.nekoare.tex-col-adjuster-v${{ steps.version.outputs.version }}.zip"
+          # 生成ZIPと index.json のみを対象にする（正規化された package.json はコミットしない）
+          git add "$ZIP_NAME" index.json
+          if git diff --cached --quiet; then
+            echo "No changes to persist."
+          else
+            git commit -m "chore: persist v${{ steps.version.outputs.version }} ZIP + index.json [skip ci]"
+            git push origin HEAD:${{ github.ref_name }} || echo "::warning::Failed to persist to repo (will retry on next release)"
+          fi
