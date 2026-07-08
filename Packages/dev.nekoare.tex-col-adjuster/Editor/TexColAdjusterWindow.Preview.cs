@@ -253,56 +253,8 @@ namespace TexColAdjuster
                     }
 
                     // Step 3: Apply post-adjustments (brightness, saturation, gamma, midtone shift)
-                    if (previewTexture != null && HasPostAdjustmentsForWindow())
-                    {
-                        Color[] pixels = previewTexture.GetPixels();
-                        for (int i = 0; i < pixels.Length; i++)
-                        {
-                            Color c = pixels[i];
-                            float a = c.a;
-
-                            // Gamma
-                            if (Mathf.Abs(gammaCorrection - 1f) > 0.001f)
-                            {
-                                c.r = Mathf.Clamp01(Mathf.Pow(c.r, gammaCorrection));
-                                c.g = Mathf.Clamp01(Mathf.Pow(c.g, gammaCorrection));
-                                c.b = Mathf.Clamp01(Mathf.Pow(c.b, gammaCorrection));
-                            }
-
-                            // Saturation
-                            if (Mathf.Abs(saturationMultiplier - 1f) > 0.001f)
-                            {
-                                float gray = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
-                                c.r = Mathf.Clamp01(gray + (c.r - gray) * saturationMultiplier);
-                                c.g = Mathf.Clamp01(gray + (c.g - gray) * saturationMultiplier);
-                                c.b = Mathf.Clamp01(gray + (c.b - gray) * saturationMultiplier);
-                            }
-
-                            // Brightness offset
-                            if (Mathf.Abs(brightnessOffset) > 0.001f)
-                            {
-                                c.r = Mathf.Clamp01(c.r + brightnessOffset);
-                                c.g = Mathf.Clamp01(c.g + brightnessOffset);
-                                c.b = Mathf.Clamp01(c.b + brightnessOffset);
-                            }
-
-                            // Midtone shift
-                            if (Mathf.Abs(midtoneShift) > 0.001f)
-                            {
-                                float wr = 4f * c.r * (1f - c.r);
-                                float wg = 4f * c.g * (1f - c.g);
-                                float wb = 4f * c.b * (1f - c.b);
-                                c.r = Mathf.Clamp01(c.r + midtoneShift * wr);
-                                c.g = Mathf.Clamp01(c.g + midtoneShift * wg);
-                                c.b = Mathf.Clamp01(c.b + midtoneShift * wb);
-                            }
-
-                            c.a = a;
-                            pixels[i] = c;
-                        }
-                        previewTexture.SetPixels(pixels);
-                        previewTexture.Apply();
-                    }
+                    // プレビューと「調整を適用」で必ず同じ式になるよう共通ヘルパーを使う
+                    ApplyPostAdjustmentsToTexture(previewTexture);
 
                     previewGenerated = previewTexture != null;
                 }
@@ -344,6 +296,72 @@ namespace TexColAdjuster
                 || Mathf.Abs(contrastMultiplier - 1f) > epsilon
                 || Mathf.Abs(gammaCorrection - 1f) > epsilon
                 || Mathf.Abs(midtoneShift) > epsilon;
+        }
+
+        /// <summary>
+        /// ウィンドウ側のポスト調整（ガンマ → 鮮やかさ → 明るさ → 色合いシフト）をテクスチャへ適用する。
+        /// プレビューと「調整を適用」(保存) が必ず同じ結果になるよう、両方からこのメソッドを使う。
+        /// hueShift / contrastMultiplier は新UIのスライダーに露出していないため、
+        /// 従来のCPUプレビューと同じくここでは扱わない（GPU側 HSBG との互換維持）。
+        /// </summary>
+        private void ApplyPostAdjustmentsToTexture(Texture2D texture)
+        {
+            if (texture == null || !HasPostAdjustmentsForWindow())
+                return;
+
+            Color[] pixels = TextureUtils.GetPixelsSafe(texture);
+            if (pixels == null)
+                return;
+
+            const float epsilon = 0.001f;
+            bool applyGamma = Mathf.Abs(gammaCorrection - 1f) > epsilon;
+            bool applySaturation = Mathf.Abs(saturationMultiplier - 1f) > epsilon;
+            bool applyBrightness = Mathf.Abs(brightnessOffset) > epsilon;
+            bool applyMidtone = Mathf.Abs(midtoneShift) > epsilon;
+
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                Color c = pixels[i];
+                float a = c.a;
+
+                // Gamma
+                if (applyGamma)
+                {
+                    c.r = Mathf.Clamp01(Mathf.Pow(c.r, gammaCorrection));
+                    c.g = Mathf.Clamp01(Mathf.Pow(c.g, gammaCorrection));
+                    c.b = Mathf.Clamp01(Mathf.Pow(c.b, gammaCorrection));
+                }
+
+                // Saturation
+                if (applySaturation)
+                {
+                    float gray = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+                    c.r = Mathf.Clamp01(gray + (c.r - gray) * saturationMultiplier);
+                    c.g = Mathf.Clamp01(gray + (c.g - gray) * saturationMultiplier);
+                    c.b = Mathf.Clamp01(gray + (c.b - gray) * saturationMultiplier);
+                }
+
+                // Brightness offset
+                if (applyBrightness)
+                {
+                    c.r = Mathf.Clamp01(c.r + brightnessOffset);
+                    c.g = Mathf.Clamp01(c.g + brightnessOffset);
+                    c.b = Mathf.Clamp01(c.b + brightnessOffset);
+                }
+
+                // Midtone shift
+                if (applyMidtone)
+                {
+                    c.r = ApplyMidtoneShift(c.r, midtoneShift);
+                    c.g = ApplyMidtoneShift(c.g, midtoneShift);
+                    c.b = ApplyMidtoneShift(c.b, midtoneShift);
+                }
+
+                c.a = a; // Preserve alpha
+                pixels[i] = c;
+            }
+
+            TextureUtils.SetPixelsSafe(texture, pixels);
         }
 
 
@@ -434,49 +452,8 @@ namespace TexColAdjuster
 
                 previewTexture = UnityEngine.Object.Instantiate(_cachedCpuBaseTexture);
 
-                if (HasPostAdjustmentsForWindow())
-                {
-                    Color[] pixels = previewTexture.GetPixels();
-                    for (int i = 0; i < pixels.Length; i++)
-                    {
-                        Color c = pixels[i];
-                        float a = c.a;
-
-                        if (Mathf.Abs(gammaCorrection - 1f) > 0.001f)
-                        {
-                            c.r = Mathf.Clamp01(Mathf.Pow(c.r, gammaCorrection));
-                            c.g = Mathf.Clamp01(Mathf.Pow(c.g, gammaCorrection));
-                            c.b = Mathf.Clamp01(Mathf.Pow(c.b, gammaCorrection));
-                        }
-                        if (Mathf.Abs(saturationMultiplier - 1f) > 0.001f)
-                        {
-                            float gray = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
-                            c.r = Mathf.Clamp01(gray + (c.r - gray) * saturationMultiplier);
-                            c.g = Mathf.Clamp01(gray + (c.g - gray) * saturationMultiplier);
-                            c.b = Mathf.Clamp01(gray + (c.b - gray) * saturationMultiplier);
-                        }
-                        if (Mathf.Abs(brightnessOffset) > 0.001f)
-                        {
-                            c.r = Mathf.Clamp01(c.r + brightnessOffset);
-                            c.g = Mathf.Clamp01(c.g + brightnessOffset);
-                            c.b = Mathf.Clamp01(c.b + brightnessOffset);
-                        }
-                        if (Mathf.Abs(midtoneShift) > 0.001f)
-                        {
-                            float wr = 4f * c.r * (1f - c.r);
-                            float wg = 4f * c.g * (1f - c.g);
-                            float wb = 4f * c.b * (1f - c.b);
-                            c.r = Mathf.Clamp01(c.r + midtoneShift * wr);
-                            c.g = Mathf.Clamp01(c.g + midtoneShift * wg);
-                            c.b = Mathf.Clamp01(c.b + midtoneShift * wb);
-                        }
-
-                        c.a = a;
-                        pixels[i] = c;
-                    }
-                    previewTexture.SetPixels(pixels);
-                    previewTexture.Apply();
-                }
+                // プレビューと「調整を適用」で同一式になるよう共通ヘルパーを使う
+                ApplyPostAdjustmentsToTexture(previewTexture);
 
                 // Update scene preview with CPU result
                 var cpuRT = RenderTexture.GetTemporary(

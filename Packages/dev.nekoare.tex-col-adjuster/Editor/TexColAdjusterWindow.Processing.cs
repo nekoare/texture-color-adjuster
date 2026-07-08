@@ -11,55 +11,6 @@ namespace TexColAdjuster
 {
     public partial class TexColAdjusterWindow
     {
-        private Color ApplyColorAdjustments(Color color)
-        {
-            // Convert to HSV
-            Color.RGBToHSV(color, out float h, out float s, out float v);
-            
-            // Apply hue shift
-            h = (h + hueShift / 360f) % 1f;
-            if (h < 0) h += 1f;
-            
-            // Apply saturation
-            s = Mathf.Clamp01(s * saturationMultiplier);
-            
-            // Convert back to RGB
-            Color adjustedColor = Color.HSVToRGB(h, s, v);
-            
-            // Apply brightness
-            adjustedColor.r = Mathf.Clamp01(adjustedColor.r + brightnessOffset);
-            adjustedColor.g = Mathf.Clamp01(adjustedColor.g + brightnessOffset);
-            adjustedColor.b = Mathf.Clamp01(adjustedColor.b + brightnessOffset);
-            
-            // Apply contrast
-            adjustedColor.r = Mathf.Clamp01((adjustedColor.r - 0.5f) * contrastMultiplier + 0.5f);
-            adjustedColor.g = Mathf.Clamp01((adjustedColor.g - 0.5f) * contrastMultiplier + 0.5f);
-            adjustedColor.b = Mathf.Clamp01((adjustedColor.b - 0.5f) * contrastMultiplier + 0.5f);
-
-            // Apply gamma correction (midpoint tone adjustment)
-            if (gammaCorrection > 0f && gammaCorrection != 1f)
-            {
-                adjustedColor.r = Mathf.Clamp01(Mathf.Pow(adjustedColor.r, gammaCorrection));
-                adjustedColor.g = Mathf.Clamp01(Mathf.Pow(adjustedColor.g, gammaCorrection));
-                adjustedColor.b = Mathf.Clamp01(Mathf.Pow(adjustedColor.b, gammaCorrection));
-            }
-
-            // Apply midtone shift (shift histogram center)
-            if (midtoneShift != 0f)
-            {
-                // Shift midtones using a curve: bias the luminance distribution
-                // midtoneShift > 0 pushes midtones brighter, < 0 pushes darker
-                // Uses a power curve centered on midtones (shadows/highlights less affected)
-                float shift = midtoneShift;
-                adjustedColor.r = ApplyMidtoneShift(adjustedColor.r, shift);
-                adjustedColor.g = ApplyMidtoneShift(adjustedColor.g, shift);
-                adjustedColor.b = ApplyMidtoneShift(adjustedColor.b, shift);
-            }
-
-            adjustedColor.a = color.a; // Preserve alpha
-            return adjustedColor;
-        }
-
         /// <summary>
         /// ミッドトーンシフト: 中間トーンを重点的にシフトし、シャドウ/ハイライトへの影響を抑える。
         /// ベルカーブ的な重みで中間値ほど大きくシフトされる。
@@ -123,36 +74,91 @@ namespace TexColAdjuster
             
             try
             {
-                // Create readable copies without modifying original textures
-                var readableTarget = TextureProcessor.MakeReadableCopy(targetTexture);
-                var readableReference = TextureProcessor.MakeReadableCopy(referenceTexture);
-                
+                Texture2D fullResolutionResult = null;
+
                 processingProgress = 0.3f;
                 Repaint();
-                
-                // Step 1: LAB histogram matching (全体の色合わせ)
-                Texture2D fullResolutionResult = ColorAdjuster.AdjustColors(
-                    readableTarget,
-                    readableReference,
-                    adjustmentIntensity / 100f,
-                    preserveLuminance,
-                    adjustmentMode
-                );
 
-                // Step 2: DualSelection refinement (選択色域の追加補正)
-                if (useDualColorSelection && hasSelectedTargetColor && hasSelectedReferenceColor && fullResolutionResult != null)
+                // GPU経路（プレビューと同じパイプライン）を優先する
+                bool canUseGPU = GPUColorAdjuster.IsGPUProcessingAvailable()
+                    && adjustmentMode == TexColAdjuster.Runtime.ColorAdjustmentMode.LabHistogramMatching;
+
+                if (canUseGPU)
                 {
-                    var refined = ColorAdjuster.ApplyDualSelectionRefinement(
-                        fullResolutionResult, selectedTargetColor, selectedReferenceColor, colorSelectionRange);
-                    if (refined != null)
+                    var gpuResult = GPUColorAdjuster.AdjustColorsGPU(
+                        targetTexture, referenceTexture,
+                        adjustmentIntensity / 100f, preserveLuminance, adjustmentMode);
+
+                    if (gpuResult != null)
                     {
-                        TextureColorSpaceUtility.UnregisterRuntimeTexture(fullResolutionResult);
-                        UnityEngine.Object.DestroyImmediate(fullResolutionResult, true);
-                        fullResolutionResult = refined;
+                        // ポスト調整（明るさ/鮮やかさ/ガンマ/色合いシフト）をGPUで適用
+                        RenderTexture finalRT = gpuResult;
+                        if (HasPostAdjustmentsForWindow() && GPUColorAdjuster.IsHSBGGPUAvailable())
+                        {
+                            var hsbgResult = GPUColorAdjuster.ApplyHSBGOnGPU(
+                                gpuResult, hueShift, saturationMultiplier, 1f, gammaCorrection, brightnessOffset, contrastMultiplier, midtoneShift);
+                            if (hsbgResult != null)
+                            {
+                                gpuResult.Dispose();
+                                finalRT = hsbgResult;
+                            }
+                        }
+
+                        fullResolutionResult = ReadbackRenderTextureAsSRGB(finalRT, targetTexture);
+
+                        // DualSelection refinement (CPU)
+                        if (useDualColorSelection && hasSelectedTargetColor && hasSelectedReferenceColor && fullResolutionResult != null)
+                        {
+                            var refined = ColorAdjuster.ApplyDualSelectionRefinement(
+                                fullResolutionResult, selectedTargetColor, selectedReferenceColor, colorSelectionRange);
+                            if (refined != null)
+                            {
+                                TextureColorSpaceUtility.UnregisterRuntimeTexture(fullResolutionResult);
+                                UnityEngine.Object.DestroyImmediate(fullResolutionResult, true);
+                                fullResolutionResult = refined;
+                            }
+                        }
+
+                        if (finalRT is IDisposable disposableRT) disposableRT.Dispose();
+                        else { finalRT.Release(); UnityEngine.Object.DestroyImmediate(finalRT); }
                     }
                 }
-                
-                
+
+                // CPUフォールバック
+                if (fullResolutionResult == null)
+                {
+                    var readableTarget = TextureProcessor.MakeReadableCopy(targetTexture);
+                    var readableReference = TextureProcessor.MakeReadableCopy(referenceTexture);
+
+                    // Step 1: LAB histogram matching (全体の色合わせ)
+                    fullResolutionResult = ColorAdjuster.AdjustColors(
+                        readableTarget,
+                        readableReference,
+                        adjustmentIntensity / 100f,
+                        preserveLuminance,
+                        adjustmentMode
+                    );
+
+                    // Step 2: DualSelection refinement (選択色域の追加補正)
+                    if (useDualColorSelection && hasSelectedTargetColor && hasSelectedReferenceColor && fullResolutionResult != null)
+                    {
+                        var refined = ColorAdjuster.ApplyDualSelectionRefinement(
+                            fullResolutionResult, selectedTargetColor, selectedReferenceColor, colorSelectionRange);
+                        if (refined != null)
+                        {
+                            TextureColorSpaceUtility.UnregisterRuntimeTexture(fullResolutionResult);
+                            UnityEngine.Object.DestroyImmediate(fullResolutionResult, true);
+                            fullResolutionResult = refined;
+                        }
+                    }
+
+                    // Step 3: ポスト調整（プレビューと同一式）※これが欠落していたため保存結果に反映されなかった
+                    ApplyPostAdjustmentsToTexture(fullResolutionResult);
+
+                    if (readableTarget != null) UnityEngine.Object.DestroyImmediate(readableTarget, true);
+                    if (readableReference != null) UnityEngine.Object.DestroyImmediate(readableReference, true);
+                }
+
                 processingProgress = 0.8f;
                 Repaint();
                 
@@ -346,6 +352,25 @@ namespace TexColAdjuster
                     adjustedTexture = ColorAdjuster.AdjustColors(
                         readableTarget, readableReference,
                         adjustmentIntensity / 100f, preserveLuminance, adjustmentMode);
+
+                    // DualSelection refinement（GPU経路と揃える）
+                    if (useDualColorSelection && hasSelectedTargetColor && hasSelectedReferenceColor && adjustedTexture != null)
+                    {
+                        var refinedCpu = ColorAdjuster.ApplyDualSelectionRefinement(
+                            adjustedTexture, selectedTargetColor, selectedReferenceColor, colorSelectionRange);
+                        if (refinedCpu != null)
+                        {
+                            TextureColorSpaceUtility.UnregisterRuntimeTexture(adjustedTexture);
+                            UnityEngine.Object.DestroyImmediate(adjustedTexture, true);
+                            adjustedTexture = refinedCpu;
+                        }
+                    }
+
+                    // ポスト調整（プレビュー/GPU経路と揃える）※これが欠落していた
+                    ApplyPostAdjustmentsToTexture(adjustedTexture);
+
+                    if (readableTarget != null) UnityEngine.Object.DestroyImmediate(readableTarget, true);
+                    if (readableReference != null) UnityEngine.Object.DestroyImmediate(readableReference, true);
 
                     Debug.Log("[ApplyColorAdjustmentToMaterial] Used CPU fallback");
                 }
